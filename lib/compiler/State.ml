@@ -252,9 +252,23 @@ let suggestion_for_uri uri forest =
     match Hashtbl.find_opt forest.hosts host with
     | None -> Ok
     | Some() ->
-      match URI.Tbl.find_opt forest.index uri with
-      | Some _ -> Ok
-      | None -> Not_found {suggestion = URI.Tbl.find_opt forest.suggestions uri}
+      (* Only warn about broken links for URLs under the configured base URL.
+         Ignore URLs on same host but outside base path, and different hosts. *)
+      let base_url = forest.config.url in
+      let is_under_base_url =
+        URI.host base_url = URI.host uri &&
+        URI.scheme base_url = URI.scheme uri &&
+        let base_path = URI.to_string base_url in
+        let uri_path = URI.to_string uri in
+        String.length uri_path >= String.length base_path &&
+        String.sub uri_path 0 (String.length base_path) = base_path
+      in
+      if is_under_base_url then
+        match URI.Tbl.find_opt forest.index uri with
+        | Some _ -> Ok
+        | None -> Not_found {suggestion = URI.Tbl.find_opt forest.suggestions uri}
+      else
+        Ok
 
 let plant_resource ?(route_locally = true) ?(include_in_manifest = true) resource forest =
   let module Graphs = (val forest.graphs) in

@@ -146,6 +146,27 @@ let test_omits_paths ~env () =
   in
   Alcotest.(check bool) "" true @@ Option.is_none path
 
+let test_broken_link_check ~env () =
+  let url = URI.of_string_exn "https://example.com/forest/" in
+  let config = Config.default ~url () in
+  let forest = State.make ~env ~config ~dev:false () in
+  Hashtbl.add forest.hosts "example.com" ();
+  
+  let under_base = URI.of_string_exn "https://example.com/forest/page" in
+  let outside_base = URI.of_string_exn "https://example.com/blog/post" in
+  let root_path = URI.of_string_exn "https://example.com/" in
+  
+  let result1 = State.suggestion_for_uri under_base forest in
+  let result2 = State.suggestion_for_uri outside_base forest in
+  let result3 = State.suggestion_for_uri root_path forest in
+  
+  Alcotest.(check bool) "checks URL under base" true 
+    (match result1 with State.Not_found _ -> true | State.Ok -> false);
+  Alcotest.(check bool) "ignores URL outside base" true
+    (match result2 with State.Ok -> true | State.Not_found _ -> false);
+  Alcotest.(check bool) "ignores root path when base has subpath" true
+    (match result3 with State.Ok -> true | State.Not_found _ -> false)
+
 let () =
   let@ env = Eio_main.run in
   Logs.set_level (Some Debug);
@@ -163,5 +184,9 @@ let () =
       [
         test_case "includes paths in dev mode" `Quick (test_includes_paths ~env);
         test_case "omits paths outside dev mode" `Quick (test_omits_paths ~env);
+      ];
+      "broken link check",
+      [
+        test_case "prefix check" `Quick (test_broken_link_check ~env);
       ]
     ]
