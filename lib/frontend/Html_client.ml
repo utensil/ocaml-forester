@@ -96,11 +96,13 @@ and render_content_node ~env (node : 'a T.content_node) : P.node list =
   | Results_of_datalog_query _ -> [] (* TODO: just make a list of links *)
   | Datalog_script _ -> []
 
-and render_link ~env (link : T.content T.link) : P.node list =
-  [
-    P.HTML.a [P.HTML.href "%s" (Format.asprintf "%a" URI.pp link.href)]
-    @@ render_content ~env link.content;
-  ]
+and render_link (forest : State.t) (link : T.content T.link) : P.node list = [
+  P.HTML.a
+    [
+      P.HTML.href "%s" (URI.path_string link.href)
+    ] @@
+    render_content forest link.content
+]
 
 and render_transclusion ~env (transclusion : T.transclusion) : P.node list =
   match State.get_content_of_transclusion transclusion env.forest with
@@ -166,4 +168,43 @@ let render_article_as_div ?(heading_level = 0) (forest : State.t)
                    env.loops;
              }
            article.mainmatter;
+    ]
+
+let render_page (forest : State.t) (tree : _ T.article) : P.node =
+  let@ () = Scope.run ~env: tree.frontmatter.uri in
+  let ttl =
+    match tree.frontmatter.title with
+    | None -> P.HTML.null []
+    | Some _ ->
+      let title = State.get_expanded_title ?scope: (Scope.read ()) tree.frontmatter forest in
+      P.HTML.title [] "%s" @@ Plain_text_client.string_of_content ~forest title
+  in
+  let open P.HTML in
+  html
+    []
+    [
+      head
+        []
+        [
+          meta [http_equiv `content_type; content "text/html"; charset "UTF-8"];
+          meta
+            [
+              name "viewport";
+              content "width=device-width, initial-scale=1.0"
+            ];
+          link
+            [
+              rel "stylesheet";
+              href "/style.css"
+            ];
+          link [rel "stylesheet"; href "/katex.min.css"];
+          script [type_ "module"; src "/forester.js"] "";
+          ttl;
+        ];
+      body
+        []
+        [
+          P.std_tag "ninja-keys" [placeholder "Start typing a note title or ID"][]; 
+          render_article_as_div forest tree
+        ]
     ]
