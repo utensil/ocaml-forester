@@ -135,7 +135,9 @@ let outputs_for_article ~(forest : State.t) (article : _ T.article) =
       html_redirect @@ String.concat "/"
       @@ ("" :: Legacy_xml_client.local_path_components forest.config xml_route)
     in
-    [(xml_route, xml_content); (html_route, html_content)]
+    let debug_route = URI.with_path_components (URI.append_path_component (URI.path_components uri) "index.tree") uri in
+    let debug_content = Format.asprintf "%a" Types.(pp_article pp_content) article in
+    [xml_route, xml_content; html_route, html_content; debug_route, debug_content;]
 
 let outputs_for_asset (asset : T.asset) =
   let route = asset.uri in
