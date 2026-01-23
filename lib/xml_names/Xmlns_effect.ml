@@ -62,6 +62,8 @@ end
 module Make () = struct
   module E = Algaeff.State.Make (Xmlns_map)
 
+  let () = E.register_printer (function _ -> Some "Unhandled Xmlns effect.")
+
   module Decls = Make_writer (struct
     type t = xmlns_attr
   end)
