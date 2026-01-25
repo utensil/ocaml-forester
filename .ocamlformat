@@ -8,3 +8,4 @@ space-around-lists=false
 space-around-variants=false
 space-around-arrays=false
 field-space=tight-decl
+module-item-spacing=preserve
