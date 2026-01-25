@@ -90,18 +90,6 @@ type result = {
 
 module Tape = Tape_effect.Make ()
 
-module Lex_env = Algaeff.Reader.Make (struct
-  type t = Value.t String_map.t
-end)
-
-module Dyn_env = Algaeff.Reader.Make (struct
-  type t = Value.t Symbol_map.t
-end)
-
-module Config_env = Algaeff.Reader.Make (struct
-  type t = Config.t
-end)
-
 module Heap = Algaeff.State.Make (struct
   type t = Value.obj Symbol_map.t
 end)
@@ -118,9 +106,26 @@ module Frontmatter = Algaeff.State.Make (struct
   type t = T.content T.frontmatter
 end)
 
-module Mode_env = Algaeff.Reader.Make (struct
-  type t = eval_mode
-end)
+type eval_env = {
+  mode: eval_mode;
+  config: Config.t;
+  lex_env: Value.t String_map.t;
+  dyn_env: Value.t Symbol_map.t;
+}
+
+let initial_eval_env config : eval_env =
+  {
+    mode = Text_mode;
+    config;
+    lex_env = String_map.empty;
+    dyn_env = Symbol_map.empty;
+  }
+
+module Eval_env = struct
+  include Algaeff.Reader.Make (struct
+    type t = eval_env
+  end)
+end
 
 let get_current_uri ~loc =
   match (Frontmatter.get ()).uri with
@@ -130,9 +135,9 @@ let get_current_uri ~loc =
       ~extra_remarks:[Asai.Diagnostic.loctext "No uri for tree"]
 
 let get_transclusion_flags ~loc =
-  let dynenv = Dyn_env.read () in
+  let {dyn_env; _} = Eval_env.read () in
   let get_bool key =
-    let@ value = Option.map @~ Symbol_map.find_opt key dynenv in
+    let@ value = Option.map @~ Symbol_map.find_opt key dyn_env in
     extract_bool @@ Range.locate_opt loc value
   in
   let module S = Expand.Builtins.Transclude in
@@ -155,7 +160,7 @@ let resolve_uri ~loc:_ str =
        treat it as a link to a local tree. *)
     match (URI.scheme uri, URI.host uri, URI.path_components uri) with
     | None, None, ([] | [_]) ->
-      let config = Config_env.read () in
+      let {config; _} = Eval_env.read () in
       let uri = URI_scheme.named_uri ~base:config.url str in
       Result.ok uri
     | _ -> Ok uri
@@ -206,9 +211,13 @@ let rec process_tape () =
   | Some node -> eval_node node
 
 and eval_tape tape = Tape.run ~tape process_tape
+
 and eval_pop_arg ~loc = Tape.pop_arg ~loc |> Range.map eval_tape
+
 and pop_content_arg ~loc = eval_pop_arg ~loc |> extract_content
+
 and pop_text_arg ~loc = eval_pop_arg ~loc |> extract_text
+
 and pop_text_arg_loc ~loc = eval_pop_arg ~loc |> extract_text_loc
 
 and eval_node node : Value.t =
@@ -222,8 +231,8 @@ and eval_node node : Value.t =
     in
     emit_content_node ~loc @@ T.prim p @@ T.Content content
   | Fun (xs, body) ->
-    let env = Lex_env.read () in
-    focus_clo ?loc env (List.map (fun (info, x) -> (info, Some x)) xs) body
+    let {lex_env; _}= Eval_env.read () in
+    focus_clo ?loc lex_env (List.map (fun (info, x) -> (info, Some x)) xs) body
   | Ref -> begin
     match eval_pop_arg ~loc |> extract_uri with
     | Ok href ->
@@ -262,7 +271,7 @@ and eval_node node : Value.t =
     emit_content_node ~loc @@ Link {href; content}
   | Math (mode, body) ->
     let content =
-      let@ () = Mode_env.run ~env:TeX_mode in
+      let@ () = Eval_env.scope @@ fun env -> {env with mode = TeX_mode} in
       {node with value = eval_tape body} |> extract_content
     in
     emit_content_node ~loc @@ KaTeX (mode, content)
@@ -284,7 +293,8 @@ and eval_node node : Value.t =
     let tex_cs_opt =
       match path with [name] -> TeX_cs.parse name | _ -> None
     in
-    begin match (Mode_env.read (), tex_cs_opt) with
+    let {mode; _} = Eval_env.read () in
+    begin match (mode, tex_cs_opt) with
     | TeX_mode, Some (cs, rest) ->
       emit_content_node ~loc
       @@ T.Text (Format.asprintf "%a%s" pp_tex_cs cs rest)
@@ -309,7 +319,7 @@ and eval_node node : Value.t =
     emit_content_node ~loc @@ T.Transclude {href; target = Full flags}
   | Subtree (addr_opt, nodes) ->
     let flags = get_transclusion_flags ~loc in
-    let config = Config_env.read () in
+    let {config; _} = Eval_env.read () in
     let uri =
       match addr_opt with
       | Some addr -> Some (URI_scheme.named_uri ~base:config.url addr)
@@ -343,7 +353,7 @@ and eval_node node : Value.t =
     end
   | Syndicate_query_as_json_blob ->
     let name = pop_text_arg ~loc in
-    let config = Config_env.read () in
+    let {config; _} = Eval_env.read () in
     let blob_uri = URI_scheme.named_uri ~base:config.url @@ name ^ ".json" in
     let query_arg = eval_pop_arg ~loc in
     begin match query_arg.value with
@@ -367,9 +377,9 @@ and eval_node node : Value.t =
     Jobs.modify @@ List.cons @@ Range.locate_opt loc job;
     process_tape ()
   | Embed_tex ->
-    let config = Config_env.read () in
+    let {config; _} = Eval_env.read () in
     let preamble, body =
-      let@ () = Mode_env.run ~env:TeX_mode in
+      let@ () = Eval_env.scope @@ fun env -> {env with mode = TeX_mode} in
       let preamble = pop_content_arg ~loc |> TeX_like.string_of_content in
       let body = pop_content_arg ~loc |> TeX_like.string_of_content in
       (preamble, body)
@@ -415,9 +425,9 @@ and eval_node node : Value.t =
     emit_content_nodes ~loc @@ [T.Route_of_uri uri]
   | Object {self; methods} ->
     let table =
-      let env = Lex_env.read () in
+      let {lex_env;_} = Eval_env.read () in
       let add (name, body) =
-        Value.Method_table.add name Value.{body; self; super = None; env}
+        Value.Method_table.add name Value.{body; self; super = None; env = lex_env}
       in
       List.fold_right add methods Value.Method_table.empty
     in
@@ -429,9 +439,9 @@ and eval_node node : Value.t =
       {node with value = obj} |> Range.map eval_tape |> extract_obj_ptr
     in
     let table =
-      let env = Lex_env.read () in
+      let {lex_env;_} = Eval_env.read () in
       let add (name, body) =
-        Value.Method_table.add name Value.{body; self; super; env}
+        Value.Method_table.add name Value.{body; self; super; env = lex_env}
       in
       List.fold_right add methods Value.Method_table.empty
     in
@@ -454,7 +464,7 @@ and eval_node node : Value.t =
       let proto_val = obj.prototype |> Option.map @@ fun ptr -> Value.Obj ptr in
       match Value.Method_table.find_opt method_name obj.methods with
       | Some mthd ->
-        let env =
+        let lex_env =
           let env =
             match mthd.self with
             | None -> mthd.env
@@ -467,7 +477,7 @@ and eval_node node : Value.t =
             | None -> env
             | Some super -> String_map.add super proto_val env)
         in
-        let@ () = Lex_env.run ~env in
+        let@ () = Eval_env.scope @@ fun env -> {env with lex_env} in
         eval_tape mthd.body
       | None -> (
         match obj.prototype with
@@ -480,7 +490,10 @@ and eval_node node : Value.t =
   | Put (k, v, body) ->
     let k = {node with value = k} |> Range.map eval_tape |> extract_sym in
     let body =
-      let@ () = Dyn_env.scope (Symbol_map.add k (eval_tape v)) in
+      let@ () =
+        Eval_env.scope @@ fun env ->
+        {env with dyn_env = Symbol_map.add k (eval_tape v) env.dyn_env}
+      in
       eval_tape body
     in
     focus ?loc:node.loc body
@@ -491,14 +504,16 @@ and eval_node node : Value.t =
         if Symbol_map.mem k flenv then flenv
         else Symbol_map.add k (eval_tape v) flenv
       in
-      let@ () = Dyn_env.scope upd in
+      let@ () =
+        Eval_env.scope @@ fun env -> {env with dyn_env = upd env.dyn_env}
+      in
       eval_tape body
     in
     focus ?loc:node.loc body
   | Get k ->
     let k = {node with value = k} |> Range.map eval_tape |> extract_sym in
-    let env = Dyn_env.read () in
-    begin match Symbol_map.find_opt k env with
+    let {dyn_env; _} = Eval_env.read () in
+    begin match Symbol_map.find_opt k dyn_env with
     | None -> Reporter.fatal ?loc:node.loc (Unbound_fluid_symbol k)
     | Some v -> focus ?loc:node.loc v
     end
@@ -640,8 +655,8 @@ and eval_node node : Value.t =
     emit_content_node ~loc:node.loc @@ T.Uri (get_current_uri ~loc:node.loc)
 
 and eval_var ~loc (x : string) =
-  let env = Lex_env.read () in
-  match String_map.find_opt x env with
+  let {lex_env; _} = Eval_env.read () in
+  match String_map.find_opt x lex_env with
   | Some v -> focus ?loc v
   | None -> Reporter.fatal ?loc (Unbound_variable x)
 
@@ -672,7 +687,7 @@ and focus_clo ?loc rho (xs : string option binding list) body =
   | [] ->
     focus ?loc
     @@
-    let@ () = Lex_env.run ~env:rho in
+    let@ () = Eval_env.scope @@ fun env -> {env with lex_env = rho} in
     eval_tape body
   | (info, y) :: ys -> (
     match Tape.pop_arg_opt () with
@@ -680,7 +695,7 @@ and focus_clo ?loc rho (xs : string option binding list) body =
       let yval =
         match info with
         | Strict -> eval_tape arg.value
-        | Lazy -> Clo (Lex_env.read (), [(Strict, None)], arg.value)
+        | Lazy -> Clo ((Eval_env.read ()).lex_env, [(Strict, None)], arg.value)
       in
       let rhoy =
         match y with Some y -> String_map.add y yval rho | None -> rho
@@ -739,14 +754,11 @@ let eval_tree ~(config : Config.t) ~(uri : URI.t) ~(source_path : string option)
       ~emit:push
     @@ fun () ->
     let fm = T.default_frontmatter ~uri ?source_path () in
-    let@ () = Mode_env.run ~env:Text_mode in
+    let@ () = Eval_env.run ~env:(initial_eval_env config) in
     let@ () = Frontmatter.run ~init:fm in
     let@ () = Emitted_trees.run ~init:[] in
     let@ () = Jobs.run ~init:[] in
     let@ () = Heap.run ~init:Symbol_map.empty in
-    let@ () = Lex_env.run ~env:String_map.empty in
-    let@ () = Dyn_env.run ~env:Symbol_map.empty in
-    let@ () = Config_env.run ~env:config in
     let main = eval_tree_inner ~uri tree in
     let side = Emitted_trees.get () in
     let jobs = Jobs.get () in
