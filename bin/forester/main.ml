@@ -153,7 +153,7 @@ let arg_config =
   let doc = "A TOML file like $(i,forest.toml)" in
   Arg.(value & pos 0 file "forest.toml" & info [] ~docv:"FOREST" ~doc)
 
-let build_cmd ~env =
+let build_cmd ~env:env_ =
   let arg_dev =
     let doc =
       "Run forester in development mode; this will attach source file \
@@ -180,9 +180,10 @@ let build_cmd ~env =
   in
   let info = Cmd.info "build" ~version ~doc ~man in
   Cmd.v info
-    Term.(const (build ~env) $ arg_logs $ arg_config $ arg_dev $ arg_no_theme)
+    Term.(
+      const (build ~env:env_) $ arg_logs $ arg_config $ arg_dev $ arg_no_theme)
 
-let new_tree_cmd ~env =
+let new_tree_cmd ~env:env_ =
   let arg_prefix =
     let doc = "The namespace prefix for the created tree." in
     Arg.value
@@ -212,29 +213,29 @@ let new_tree_cmd ~env =
   let info = Cmd.info "new" ~version ~doc in
   Cmd.v info
     Term.(
-      const (new_tree ~env)
+      const (new_tree ~env:env_)
       $ arg_config $ arg_dest_dir $ arg_prefix $ arg_template $ arg_random)
 
-let complete_cmd ~env =
+let complete_cmd ~env:env_ =
   let arg_title =
     let doc = "The tree title prefix to complete." in
     Arg.value @@ Arg.opt Arg.string "" @@ Arg.info ["title"] ~docv:"title" ~doc
   in
   let doc = "Complete a tree title." in
   let info = Cmd.info "complete" ~version ~doc in
-  Cmd.v info Term.(const (complete ~env) $ arg_config $ arg_title)
+  Cmd.v info Term.(const (complete ~env:env_) $ arg_config $ arg_title)
 
-let query_all_cmd ~env =
+let query_all_cmd ~env:env_ =
   let doc = "List all trees in JSON format" in
   let info = Cmd.info "all" ~version ~doc in
-  Cmd.v info Term.(const (query_all ~env) $ arg_config)
+  Cmd.v info Term.(const (query_all ~env:env_) $ arg_config)
 
 let query_cmd ~env =
   let doc = "Query your forest" in
   let info = Cmd.info "query" ~version ~doc in
   Cmd.group info [query_all_cmd ~env]
 
-let init_cmd ~env =
+let init_cmd ~env:env_ =
   let arg_dir =
     let doc = "The directory in which to initialize the forest" in
     Arg.value
@@ -253,13 +254,13 @@ let init_cmd ~env =
     ]
   in
   let info = Cmd.info "init" ~version ~doc ~man in
-  Cmd.v info Term.(const (init ~env) $ arg_dir)
+  Cmd.v info Term.(const (init ~env:env_) $ arg_dir)
 
 let lsp ~env _ config =
   let config = Config_parser.parse_forest_config_file config in
   Forester_lsp.start ~env ~config
 
-let lsp_cmd ~env =
+let lsp_cmd ~env:env_ =
   let man =
     [
       `S Manpage.s_description;
@@ -268,7 +269,7 @@ let lsp_cmd ~env =
   in
   let doc = "Start the LSP" in
   let info = Cmd.info "lsp" ~version ~doc ~man in
-  Cmd.v info Term.(const (lsp ~env) $ arg_logs $ arg_config)
+  Cmd.v info Term.(const (lsp ~env:env_) $ arg_logs $ arg_config)
 
 let cmd ~env =
   let doc = "a tool for tending mathematical forests" in
