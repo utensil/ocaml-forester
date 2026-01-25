@@ -85,12 +85,7 @@ type test_env = {
   position: L.Position.t;
 }
 
-module Test_env = Algaeff.State.Make (struct
-  type t = test_env
-end)
-
-let find_tree addr =
-  let env = Test_env.get () in
+let find_tree ~env addr =
   let dirs = env.dirs in
   Eio.Path.native_exn @@ Option.get @@ Dir_scanner.find_tree dirs
   @@ URI_scheme.named_uri ~base:env.config.url addr
