@@ -13,6 +13,7 @@ end
 
 module String_map = Map.Make (String)
 module Symbol_map = Map.Make (Symbol)
+module Symbol_table = Hashtbl.Make (Symbol)
 
 type t =
   | Content of T.content

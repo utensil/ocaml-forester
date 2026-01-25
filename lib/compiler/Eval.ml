@@ -11,6 +11,7 @@ open struct
   module T = Types
   module String_map = Value.String_map
   module Symbol_map = Value.Symbol_map
+  module Symbol_table = Value.Symbol_table
 
   type located = Value.t Range.located
 end
@@ -90,39 +91,31 @@ type result = {
 
 module Tape = Tape_effect.Make ()
 
-module Heap = Algaeff.State.Make (struct
-  type t = Value.obj Symbol_map.t
-end)
-
-module Emitted_trees = Algaeff.State.Make (struct
-  type t = T.content T.article list
-end)
-
-module Jobs = Algaeff.State.Make (struct
-  type t = Job.job Range.located list
-end)
-
-module Frontmatter = Algaeff.State.Make (struct
-  type t = T.content T.frontmatter
-end)
-
 type eval_env = {
   mode: eval_mode;
   config: Config.t;
   lex_env: Value.t String_map.t;
   dyn_env: Value.t Symbol_map.t;
+  jobs: Job.job Range.located Stack.t;
+  emitted_trees: T.content T.article Stack.t;
+  heap: Value.obj Symbol_table.t;
+  mutable frontmatter: T.content T.frontmatter;
 }
 
-let initial_eval_env config : eval_env =
+let initial_eval_env config frontmatter : eval_env =
   {
     mode = Text_mode;
     config;
     lex_env = String_map.empty;
     dyn_env = Symbol_map.empty;
+    jobs = Stack.create ();
+    emitted_trees = Stack.create ();
+    heap = Symbol_table.create 100;
+    frontmatter;
   }
 
-let get_current_uri ~loc =
-  match (Frontmatter.get ()).uri with
+let get_current_uri ~env ~loc =
+  match env.frontmatter.uri with
   | Some uri -> uri
   | None ->
     Reporter.fatal ?loc Internal_error
@@ -319,7 +312,7 @@ and eval_node ~env node : Value.t =
       | None -> None
     in
     let subtree = eval_tree_inner ~env ?uri nodes in
-    let frontmatter = Frontmatter.get () in
+    let frontmatter = env.frontmatter in
     let subtree =
       {
         subtree with
@@ -329,7 +322,7 @@ and eval_node ~env node : Value.t =
     in
     begin match uri with
     | Some uri ->
-      Emitted_trees.modify @@ List.cons subtree;
+      Stack.push subtree env.emitted_trees;
       let transclusion = T.{href = uri; target = Full flags} in
       emit_content_node ~env ~loc @@ Transclude transclusion
     | None ->
@@ -354,14 +347,14 @@ and eval_node ~env node : Value.t =
     begin match query_arg.value with
     | Dx_query query ->
       let job = Job.Syndicate (Json_blob {blob_uri; query}) in
-      Jobs.modify @@ List.cons @@ Range.locate_opt loc job;
+      Stack.push (Range.locate_opt loc job) env.jobs;
       process_tape ~env ()
     | other ->
       Reporter.fatal ?loc:query_arg.loc
         (Type_error {expected = [Dx_query]; got = Some other})
     end
   | Syndicate_current_tree_as_atom_feed ->
-    let source_uri = get_current_uri ~loc:node.loc in
+    let source_uri = get_current_uri ~env ~loc:node.loc in
     let feed_uri =
       let components =
         URI.append_path_component (URI.path_components source_uri) "atom.xml"
@@ -369,7 +362,7 @@ and eval_node ~env node : Value.t =
       URI.with_path_components components source_uri
     in
     let job = Job.Syndicate (Atom_feed {source_uri; feed_uri}) in
-    Jobs.modify @@ List.cons @@ Range.locate_opt loc job;
+    Stack.push (Range.locate_opt loc job) env.jobs;
     process_tape ~env ()
   | Embed_tex ->
     let preamble, body =
@@ -411,7 +404,7 @@ and eval_node ~env node : Value.t =
       ]
     in
     let artefact = T.{hash; content; sources} in
-    Jobs.modify (List.cons (Range.locate_opt loc (Job.LaTeX_to_svg job)));
+    Stack.push (Range.locate_opt loc (Job.LaTeX_to_svg job)) env.jobs;
     emit_content_node ~env ~loc @@ T.Artefact artefact
   | Route_asset ->
     let Range.{value = source_path; loc = path_loc} =
@@ -428,7 +421,7 @@ and eval_node ~env node : Value.t =
       List.fold_right add methods Value.Method_table.empty
     in
     let sym = Symbol.named ["obj"] in
-    Heap.modify @@ Symbol_map.add sym Value.{prototype = None; methods = table};
+    Symbol_table.replace env.heap sym Value.{prototype = None; methods = table};
     focus ~env ?loc:node.loc @@ Value.Obj sym
   | Patch {obj; self; super; methods} ->
     let obj_ptr =
@@ -441,8 +434,8 @@ and eval_node ~env node : Value.t =
       List.fold_right add methods Value.Method_table.empty
     in
     let sym = Symbol.named ["obj"] in
-    Heap.modify
-    @@ Symbol_map.add sym Value.{prototype = Some obj_ptr; methods = table};
+    Symbol_table.replace env.heap sym
+      Value.{prototype = Some obj_ptr; methods = table};
     focus ~env ?loc:node.loc @@ Value.Obj sym
   | Group (d, body) ->
     let l, r = delim_to_strings d in
@@ -475,11 +468,11 @@ and eval_node ~env node : Value.t =
         eval_tape ~env:{env with lex_env} mthd.body
       | None -> (
         match obj.prototype with
-        | Some proto -> call_method ~env @@ Symbol_map.find proto @@ Heap.get ()
+        | Some proto -> call_method ~env @@ Symbol_table.find env.heap proto
         | None ->
           Reporter.fatal ?loc:node.loc (Unbound_method (method_name, obj)))
     in
-    let result = call_method ~env @@ Symbol_map.find sym @@ Heap.get () in
+    let result = call_method ~env @@ Symbol_table.find env.heap sym in
     focus ~env ?loc:node.loc result
   | Put (k, v, body) ->
     let k =
@@ -515,7 +508,7 @@ and eval_node ~env node : Value.t =
   | Verbatim str -> emit_content_node ~env ~loc @@ CDATA str
   | Title ->
     let title = pop_content_arg ~env ~loc in
-    Frontmatter.modify (fun fm -> {fm with title = Some title});
+    env.frontmatter <- {env.frontmatter with title = Some title};
     process_tape ~env ()
   | Parent ->
     let parent_arg = eval_pop_arg ~env ~loc in
@@ -527,12 +520,13 @@ and eval_node ~env node : Value.t =
           ~extra_remarks:
             [Asai.Diagnostic.loctext "Expected valid URI in parent declaration"]
     in
-    Frontmatter.modify (fun fm -> {fm with designated_parent = Some parent});
+    env.frontmatter <- {env.frontmatter with designated_parent = Some parent};
     process_tape ~env ()
   | Meta ->
     let k = pop_text_arg ~env ~loc in
     let v = pop_content_arg ~env ~loc in
-    Frontmatter.modify (fun fm -> {fm with metas = fm.metas @ [(k, v)]});
+    env.frontmatter <-
+      {env.frontmatter with metas = env.frontmatter.metas @ [(k, v)]};
     process_tape ~env ()
   | Attribution (role, type_) ->
     let arg = eval_pop_arg ~env ~loc in
@@ -556,8 +550,11 @@ and eval_node ~env node : Value.t =
         T.Content_vertex (extract_content arg)
     in
     let attribution = T.{role; vertex} in
-    Frontmatter.modify (fun fm ->
-        {fm with attributions = fm.attributions @ [attribution]});
+    env.frontmatter <-
+      {
+        env.frontmatter with
+        attributions = env.frontmatter.attributions @ [attribution];
+      };
     process_tape ~env ()
   | Tag type_ ->
     let arg = eval_pop_arg ~env ~loc in
@@ -576,7 +573,8 @@ and eval_node ~env node : Value.t =
             ];
         T.Content_vertex (extract_content arg)
     in
-    Frontmatter.modify (fun fm -> {fm with tags = fm.tags @ [vertex]});
+    env.frontmatter <-
+      {env.frontmatter with tags = env.frontmatter.tags @ [vertex]};
     process_tape ~env ()
   | Date ->
     let date_str = pop_text_arg ~env ~loc in
@@ -586,16 +584,17 @@ and eval_node ~env node : Value.t =
         ~extra_remarks:
           [Asai.Diagnostic.loctextf "Invalid date string `%s`" date_str]
     | Some date ->
-      Frontmatter.modify (fun fm -> {fm with dates = fm.dates @ [date]});
+      env.frontmatter <-
+        {env.frontmatter with dates = env.frontmatter.dates @ [date]};
       process_tape ~env ()
     end
   | Number ->
     let num = pop_text_arg ~env ~loc in
-    Frontmatter.modify (fun fm -> {fm with number = Some num});
+    env.frontmatter <- {env.frontmatter with number = Some num};
     process_tape ~env ()
   | Taxon ->
     let taxon = Some (pop_content_arg ~env ~loc) in
-    Frontmatter.modify (fun fm -> {fm with taxon});
+    env.frontmatter <- {env.frontmatter with taxon};
     process_tape ~env ()
   | Sym sym -> focus ~env ?loc:node.loc @@ Value.Sym sym
   | Dx_prop (rel, args) ->
@@ -648,7 +647,7 @@ and eval_node ~env node : Value.t =
     emit_content_node ~env ~loc:node.loc @@ T.Datalog_script [script]
   | Current_tree ->
     emit_content_node ~env ~loc:node.loc
-    @@ T.Uri (get_current_uri ~loc:node.loc)
+    @@ T.Uri (get_current_uri ~env ~loc:node.loc)
 
 and eval_var ~env ~loc (x : string) =
   match String_map.find_opt x env.lex_env with
@@ -715,7 +714,7 @@ and eval_tree_inner ~env ?(uri : URI.t option) (syn : Syn.t) :
   let attribution_is_author attr =
     match T.(attr.role) with T.Author -> true | _ -> false
   in
-  let outer_frontmatter = Frontmatter.get () in
+  let outer_frontmatter = env.frontmatter in
   let attributions =
     List.filter attribution_is_author outer_frontmatter.attributions
   in
@@ -724,11 +723,11 @@ and eval_tree_inner ~env ?(uri : URI.t option) (syn : Syn.t) :
       ?source_path:outer_frontmatter.source_path ~dates:outer_frontmatter.dates
       ()
   in
-  let@ () = Frontmatter.run ~init:frontmatter in
+  let env = {env with frontmatter} in
   let mainmatter =
     {value = eval_tape ~env syn; loc = None} |> extract_content
   in
-  let frontmatter = Frontmatter.get () in
+  let frontmatter = env.frontmatter in
   let backmatter =
     match uri with Some uri -> default_backmatter ~uri | None -> Content []
   in
@@ -748,14 +747,10 @@ let eval_tree ~(config : Config.t) ~(uri : URI.t) ~(source_path : string option)
       ~emit:push
     @@ fun () ->
     let fm = T.default_frontmatter ~uri ?source_path () in
-    let env = initial_eval_env config in
-    let@ () = Frontmatter.run ~init:fm in
-    let@ () = Emitted_trees.run ~init:[] in
-    let@ () = Jobs.run ~init:[] in
-    let@ () = Heap.run ~init:Symbol_map.empty in
+    let env = initial_eval_env config fm in
     let main = eval_tree_inner ~env ~uri tree in
-    let side = Emitted_trees.get () in
-    let jobs = Jobs.get () in
+    let side = env.emitted_trees |> Stack.to_seq |> List.of_seq in
+    let jobs = env.jobs |> Stack.to_seq |> List.of_seq in
     {articles = main :: side; jobs}
   in
   (res, !diagnostics)

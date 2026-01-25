@@ -8,6 +8,8 @@ type t = (Trie.path[@repr Repr.(list string)]) * int [@@deriving repr]
 
 let counter = ref 0
 
+let hash = Hashtbl.hash
+
 let named path =
   counter := !counter + 1;
   (path, !counter)
@@ -17,5 +19,6 @@ let clone (path, _) = named path
 let pp fmt (sym, ix) = Format.fprintf fmt "%a@%i" Trie.pp_path sym ix
 let show x = Format.asprintf "%a" pp x
 let compare = compare
+let equal = ( = )
 let name (sym, _) = sym
 let repr : t Repr.t = Repr.pair (Repr.list Repr.string) Repr.int

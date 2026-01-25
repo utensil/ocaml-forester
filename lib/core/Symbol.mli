@@ -14,4 +14,6 @@ val name : t -> Trie.path
 val fresh : unit -> t
 val clone : t -> t
 val compare : t -> t -> int
+val hash : t -> int
+val equal : t -> t -> bool
 val repr : t Repr.t
