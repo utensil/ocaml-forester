@@ -8,10 +8,9 @@ open Forester_core
 include module type of Forester_parser.Parse
 
 val parse_document :
-  config: Config.t ->
+  config:Config.t ->
   Lsp.Text_document.t ->
   (Forester_core.Tree.code, Forester_core.Reporter.diagnostic) result
 
 val parse_file :
-  string ->
-  (Forester_core.Code.t, Forester_core.Reporter.diagnostic) result
+  string -> (Forester_core.Code.t, Forester_core.Reporter.diagnostic) result

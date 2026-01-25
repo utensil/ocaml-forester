@@ -6,8 +6,7 @@
 
 include Yuujinchou.Trie
 
-type path = string list
-[@@deriving repr]
+type path = string list [@@deriving repr]
 
 let pp_path =
   let pp_sep fmt () = Format.pp_print_string fmt "/" in

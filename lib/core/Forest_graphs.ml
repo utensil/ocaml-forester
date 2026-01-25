@@ -17,15 +17,18 @@ module type S = sig
 end
 
 let init (db : Dl.db) : (module S) =
-(module struct
-  let dl_db = db
+  (module struct
+    let dl_db = db
 
-  let register_uri uri =
-    let vtx : Vertex.t = T.Uri_vertex uri in
-    Dl.db_add_fact dl_db @@ Dl.mk_literal Builtin_relation.is_node [Dl.mk_const vtx];
-    let@ host = Option.iter @~ URI.host uri in
-    let host_vtx = T.Content_vertex (T.Content [T.Text host]) in
-    Dl.db_add_fact dl_db @@ Dl.mk_literal Builtin_relation.in_host [Dl.mk_const vtx; Dl.mk_const host_vtx]
-end)
+    let register_uri uri =
+      let vtx : Vertex.t = T.Uri_vertex uri in
+      Dl.db_add_fact dl_db
+      @@ Dl.mk_literal Builtin_relation.is_node [Dl.mk_const vtx];
+      let@ host = Option.iter @~ URI.host uri in
+      let host_vtx = T.Content_vertex (T.Content [T.Text host]) in
+      Dl.db_add_fact dl_db
+      @@ Dl.mk_literal Builtin_relation.in_host
+           [Dl.mk_const vtx; Dl.mk_const host_vtx]
+  end)
 
-module Make () : S = (val (init @@ Dl.db_create ()))
+module Make () : S = (val init @@ Dl.db_create ())

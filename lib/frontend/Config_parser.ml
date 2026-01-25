@@ -7,15 +7,19 @@
 open Forester_prelude
 open Forester_core
 
-(* type keys = (Toml.Types.Table.key [@printer fun fmt key -> fprintf fmt "%s" (Toml.Types.Table.Key.to_string key)]) list list [@@deriving show] *)
+(* type keys = (Toml.Types.Table.key
+   [@printer fun fmt key -> fprintf fmt "%s" (Toml.Types.Table.Key.to_string
+    key)]) list list [@@deriving show] *)
 
 module Key_set = struct
-  include Set.Make(struct
+  include Set.Make (struct
     type t = Toml.Types.Table.key list
+
     let compare = compare
   end)
 
-  let remove : string list -> t -> t = fun strs set ->
+  let remove : string list -> t -> t =
+   fun strs set ->
     let key = List.map Toml.Types.Table.Key.of_string strs in
     remove key set
 end
@@ -23,18 +27,12 @@ end
 let keys (tbl : Toml.Types.value Toml.Types.Table.t) =
   let rec go current keys tbl =
     List.fold_left
-      begin
-        fun acc (key, value) ->
-          match value with
-          | Toml.Types.TBool _
-          | TInt _
-          | TFloat _
-          | TString _
-          | TDate _
-          | TArray _ ->
-            (key :: current) :: acc
-          | TTable tbl ->
-            go (key :: current) acc tbl
+      begin fun acc (key, value) ->
+        match value with
+        | Toml.Types.TBool _ | TInt _ | TFloat _ | TString _ | TDate _
+        | TArray _ ->
+          (key :: current) :: acc
+        | TTable tbl -> go (key :: current) acc tbl
       end
       keys
       (Toml.Types.Table.to_list tbl)
@@ -46,8 +44,9 @@ let parse lexbuf filename =
   match Toml.Parser.parse lexbuf filename with
   | `Error (desc, {source; _}) ->
     let@ () = Reporter.tracef "when parsing configuration file" in
-    let loc = Asai.Range.of_lexbuf ~source: (`File source) lexbuf in
-    Reporter.fatal ~loc Configuration_error ~extra_remarks: [Asai.Diagnostic.loctextf "%s" desc]
+    let loc = Asai.Range.of_lexbuf ~source:(`File source) lexbuf in
+    Reporter.fatal ~loc Configuration_error
+      ~extra_remarks:[Asai.Diagnostic.loctextf "%s" desc]
   | `Ok tbl ->
     let open Toml.Lenses in
     let keys = ref (keys tbl) in
@@ -67,11 +66,11 @@ let parse lexbuf filename =
       match get tbl (forest |-- key "url" |-- string) with
       | Some url ->
         keys := Key_set.remove k !keys;
-        begin
-          try
-            URI.of_string_exn url
-          with
-            | _ -> Reporter.fatal Configuration_error ~extra_remarks: [Asai.Diagnostic.loctext "Invalid URL specified in `url` key."]
+        begin try URI.of_string_exn url
+        with _ ->
+          Reporter.fatal Configuration_error
+            ~extra_remarks:
+              [Asai.Diagnostic.loctext "Invalid URL specified in `url` key."]
         end
       | None ->
         Reporter.emit (Using_default_option k);
@@ -80,7 +79,8 @@ let parse lexbuf filename =
     let default = Config.default ~url () in
     let trees =
       let k = ["forest"; "trees"] in
-      with_default ~value: default.trees k (forest |-- key "trees" |-- array |-- strings)
+      with_default ~value:default.trees k
+        (forest |-- key "trees" |-- array |-- strings)
     in
     let foreign =
       let k = ["forest"; "foreign"] in
@@ -107,24 +107,20 @@ let parse lexbuf filename =
         Config.{path; route_locally; include_in_manifest}
     in
     let assets =
-      with_default
-        ~value: default.assets
-        ["forest"; "assets"]
+      with_default ~value:default.assets ["forest"; "assets"]
         (forest |-- key "assets" |-- array |-- strings)
     in
     let home =
       let k = ["forest"; "home"] in
-      URI_scheme.named_uri ~base: url @@
-        with_default ~value: "index" k (forest |-- key "home" |-- string)
+      URI_scheme.named_uri ~base:url
+      @@ with_default ~value:"index" k (forest |-- key "home" |-- string)
     in
-    begin
-      if not (Key_set.is_empty !keys) then
-        let keys =
-          !keys
-          |> Key_set.to_list
-          |> List.map (List.map (Toml.Types.Table.Key.to_string))
-        in
-        Reporter.emit (Uninterpreted_config_options keys);
+    begin if not (Key_set.is_empty !keys) then
+      let keys =
+        !keys |> Key_set.to_list
+        |> List.map (List.map Toml.Types.Table.Key.to_string)
+      in
+      Reporter.emit (Uninterpreted_config_options keys)
     end;
     Config.{url; assets; trees; foreign; home}
 
@@ -135,10 +131,11 @@ let parse_forest_config_string str =
 let parse_forest_config_file filename =
   try
     let ch = open_in filename in
-    let@ () = Fun.protect ~finally: (fun _ -> close_in ch) in
+    let@ () = Fun.protect ~finally:(fun _ -> close_in ch) in
     let lexbuf = Lexing.from_channel ch in
     let result = parse lexbuf filename in
     Sys.chdir @@ Filename.dirname filename;
     result
-  with
-    | exn -> Reporter.fatal Configuration_error ~extra_remarks: [Asai.Diagnostic.loctextf "%a" Eio.Exn.pp exn]
+  with exn ->
+    Reporter.fatal Configuration_error
+      ~extra_remarks:[Asai.Diagnostic.loctextf "%a" Eio.Exn.pp exn]

@@ -15,9 +15,8 @@ module Config = Config
 
 (** {1 Vertices}
 
-    The type of vertices used by the {{!Forester_core.Forest_graphs}graph database}
-
-    *)
+    The type of vertices used by the
+    {{!Forester_core.Forest_graphs}graph database} *)
 
 module Vertex = Vertex
 module Vertex_set = Vertex_set
@@ -33,12 +32,14 @@ module Reporter = Reporter
 
 module Range = Range
 
-(** {2 Builtins}*)
 module Builtin_relation = Builtin_relation
+(** {2 Builtins}*)
+
 module Builtin_queries = Builtin_queries
 
 module Forest_graph = Forest_graph
-(** The graph type used by the datalog database. Used in particular to track imports, links and transclusions. *)
+(** The graph type used by the datalog database. Used in particular to track
+    imports, links and transclusions. *)
 
 module Forest_graphs = Forest_graphs
 (** The graph database*)
@@ -48,16 +49,11 @@ module Forest_graphs = Forest_graphs
 module Datalog_engine = Datalog_engine
 module Datalog_expr = Datalog_expr
 module Datalog_eval = Datalog_eval
-
 module Prim = Prim
-
 module TeX_cs = TeX_cs
-
 module Types = Types
 module TeX_like = TeX_like (* TODO: rename this *)
-
 module Trie = Trie
-
 module Syn = Syn
 module Symbol = Symbol
 module Value = Value

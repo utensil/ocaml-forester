@@ -13,20 +13,19 @@ val stripped_path_components : t -> string list
 val append_path_component : string list -> string -> string list
 val path_components : t -> string list
 val with_path_components : string list -> t -> t
-
 val canonicalise : t -> t
-val relative_path_string : base: t -> t -> string
-val display_path_string : base: t -> t -> string
-val resolve : base: t -> t -> t
+val relative_path_string : base:t -> t -> string
+val display_path_string : base:t -> t -> string
+val resolve : base:t -> t -> t
 val equal : t -> t -> bool
 val compare : t -> t -> int
 
 val make :
-  ?scheme: string ->
-  ?user: string ->
-  ?host: string ->
-  ?port: int ->
-  ?path: string list ->
+  ?scheme:string ->
+  ?user:string ->
+  ?host:string ->
+  ?port:int ->
+  ?path:string list ->
   unit ->
   t
 

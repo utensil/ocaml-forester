@@ -101,7 +101,6 @@
         legacyPackages = scopes.scope';
         packages.default = scopesStatic.main;
         devShells.default = pkgs.mkShell {
-          TOPIARY_LANGUAGE_DIR = "topiary";
           inputsFrom = [ scopes.main ];
 
           buildInputs =
@@ -109,7 +108,6 @@
             devPackages
             ++ [
               tex
-              topiary
               reuse
               watchexec
             ];

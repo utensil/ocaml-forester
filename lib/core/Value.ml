@@ -7,14 +7,16 @@
 open Forester_prelude
 open Base
 
-open struct module T = Types end
+open struct
+  module T = Types
+end
 
-module String_map = Map.Make(String)
-module Symbol_map = Map.Make(Symbol)
+module String_map = Map.Make (String)
+module Symbol_map = Map.Make (Symbol)
 
 type t =
   | Content of T.content
-  | Clo of (t String_map.t [@opaque]) * string option binding list * Syn.t
+  | Clo of (t String_map.t[@opaque]) * string option binding list * Syn.t
   | Dx_prop of (string, T.content T.vertex) Datalog_expr.prop
   | Dx_sequent of (string, T.content T.vertex) Datalog_expr.sequent
   | Dx_query of (string, T.content T.vertex) Datalog_expr.query
@@ -28,13 +30,15 @@ type obj_method = {
   body: Syn.t;
   self: string option;
   super: string option;
-  env: t String_map.t [@opaque]
+  env: t String_map.t; [@opaque]
 }
 [@@deriving show]
 
 module Method_table = struct
-  include Map.Make(String)
-  let pp (pp_el : Format.formatter -> 'a -> unit) (fmt : Format.formatter) (map : 'a t) =
+  include Map.Make (String)
+
+  let pp (pp_el : Format.formatter -> 'a -> unit) (fmt : Format.formatter)
+      (map : 'a t) =
     Format.fprintf fmt "@[<v1>{";
     begin
       let@ k, v = Seq.iter @~ to_seq map in
@@ -43,8 +47,5 @@ module Method_table = struct
     Format.fprintf fmt "}@]"
 end
 
-type obj = {
-  prototype: Symbol.t option;
-  methods: obj_method Method_table.t
-}
+type obj = {prototype: Symbol.t option; methods: obj_method Method_table.t}
 [@@deriving show]

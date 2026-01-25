@@ -6,19 +6,18 @@
 
 open Base
 
-open struct module T = Types end
+open struct
+  module T = Types
+end
 
-type 'a _object = {
-  self: string option;
-  methods: (string * 'a) list
-}
+type 'a _object = {self: string option; methods: (string * 'a) list}
 [@@deriving show, repr]
 
 type 'a patch = {
   obj: 'a;
   self: string option;
   super: string option;
-  methods: (string * 'a) list
+  methods: (string * 'a) list;
 }
 [@@deriving show, repr]
 
@@ -56,20 +55,18 @@ type node =
   | Error of string
 [@@deriving show, repr]
 
-and t = node Range.located list
-[@@deriving show, repr]
+and t = node Range.located list [@@deriving show, repr]
 
 type tree = {
   source_path: string option;
   uri: URI.t option;
   timestamp: float option;
-  code: t
+  code: t;
 }
 [@@deriving show, repr]
 
 let import_private x = Import (Private, x)
 let import_public x = Import (Public, x)
-
 let inline_math e = Math (Inline, e)
 let display_math e = Math (Display, e)
 let parens e = Group (Parens, e)
@@ -94,21 +91,22 @@ let map f node =
   | Put (p, t) -> Put (p, f t)
   | Fun (b, t) -> Fun (b, f t)
   | Call (t, s) -> Call (f t, s)
-  | Object {self; methods} -> Object {self; methods = List.map (fun (s, t) -> (s, f t)) methods}
-  | Patch {obj; self; super; methods} -> Patch {obj = f obj; self; super; methods = List.map (fun (s, t) -> (s, f t)) methods}
-  | Text _
-  | Verbatim _
-  | Ident _
-  | Hash_ident _
+  | Object {self; methods} ->
+    Object {self; methods = List.map (fun (s, t) -> (s, f t)) methods}
+  | Patch {obj; self; super; methods} ->
+    Patch
+      {
+        obj = f obj;
+        self;
+        super;
+        methods = List.map (fun (s, t) -> (s, f t)) methods;
+      }
+  | Text _ | Verbatim _ | Ident _ | Hash_ident _
   | Xml_ident (_, _)
-  | Open _
-  | Get _
+  | Open _ | Get _
   | Import (_, _)
   | Decl_xmlns (_, _)
-  | Alloc _
-  | Dx_var _
-  | Comment _
-  | Error _ ->
+  | Alloc _ | Dx_var _ | Comment _ | Error _ ->
     node
 
 let children (node : node Range.located) =
@@ -127,26 +125,15 @@ let children (node : node Range.located) =
   | Call (t, _)
   | Subtree (_, t) ->
     t
-  | Dx_prop (_, t)
-  | Dx_query (_, _, t)
-  | Dx_sequent (_, t) ->
-    (List.concat t)
-  | Object {methods; _} ->
-    (methods |> List.map snd |> List.concat)
+  | Dx_prop (_, t) | Dx_query (_, _, t) | Dx_sequent (_, t) -> List.concat t
+  | Object {methods; _} -> methods |> List.map snd |> List.concat
   | Patch {obj; methods; _} ->
-    let methods = (methods |> List.map snd |> List.concat) in
-    (List.append obj methods)
-  | Text _
-  | Verbatim _
-  | Ident _
-  | Hash_ident _
+    let methods = methods |> List.map snd |> List.concat in
+    List.append obj methods
+  | Text _ | Verbatim _ | Ident _ | Hash_ident _
   | Xml_ident (_, _)
-  | Open _
-  | Get _
+  | Open _ | Get _
   | Import (_, _)
   | Decl_xmlns (_, _)
-  | Alloc _
-  | Dx_var _
-  | Comment _
-  | Error _ ->
+  | Alloc _ | Dx_var _ | Comment _ | Error _ ->
     []

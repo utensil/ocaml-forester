@@ -13,5 +13,4 @@ val eval_term : Vertex.t Dx.term -> D.term
 val eval_prop : (string, Vertex.t) Dx.prop -> D.literal
 val eval_sequent : (string, Vertex.t) Dx.sequent -> D.clause
 val eval_script : (string, Vertex.t) Dx.script -> D.clause list
-
 val run_query : D.db -> (string, Vertex.t) Dx.query -> Vertex_set.t

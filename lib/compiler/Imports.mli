@@ -6,11 +6,7 @@
 
 open Forester_core
 
-type analysis_env = {
-  follow: bool;
-  forest: State.t;
-  graph: Forest_graph.t;
-}
+type analysis_env = {follow: bool; forest: State.t; graph: Forest_graph.t}
 
 val load_tree : Eio.Fs.dir_ty Eio.Path.t -> Lsp.Text_document.t
 val build : State.t -> Forest_graph.t

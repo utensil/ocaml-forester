@@ -6,15 +6,13 @@
 
 open Types
 
-type t = content vertex
-[@@deriving show]
+type t = content vertex [@@deriving show]
 
 let clean = function
   | Content_vertex x -> Content_vertex x
   | Uri_vertex uri -> Uri_vertex uri
 
 let hash x = Hashtbl.hash (clean x)
-
 let compare x y = compare (clean x) (clean y)
 let equal x y = clean x = clean y
 

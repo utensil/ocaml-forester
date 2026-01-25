@@ -8,10 +8,13 @@ open Forester_prelude
 open Forester_core
 open Spelll
 
-open struct module T = Forester_core.Types end
+open struct
+  module T = Forester_core.Types
+end
 
-module Ocurrences = Set.Make(struct
+module Ocurrences = Set.Make (struct
   type t = int list list * URI.t
+
   (* FIXME: *)
   let compare (_i, x) (_j, y) = URI.compare x y
 end)
@@ -25,7 +28,8 @@ type t = {
 let average_doc_length {number_of_tokens; number_of_docs; _} : float =
   Float.of_int number_of_tokens /. Float.of_int number_of_docs
 
-let add_one (article : T.content T.article) ({index; number_of_tokens; number_of_docs;} as t) : t =
+let add_one (article : T.content T.article)
+    ({index; number_of_tokens; number_of_docs} as t) : t =
   if Option.is_none T.(article.frontmatter.uri) then t
   else
     let tokens_in_article = Tokenizer.tokenize_article article in
@@ -33,50 +37,45 @@ let add_one (article : T.content T.article) ({index; number_of_tokens; number_of
     let new_tokens = ref 0 in
     let new_index =
       List.fold_left
-        begin
-          fun index (ocurrences, token) ->
-            match Index.retrieve_l ~limit: 0 index token with
-            | [] ->
-              (* Unseen token*)
-              (* TODO: add to list of ocurrences*)
-              let ocurrence = Ocurrences.singleton ([ocurrences], uri) in
-              new_tokens := !new_tokens + 1;
-              Index.add index token ocurrence
-            | ids :: [] ->
-              Index.add index token (Ocurrences.add ([ocurrences], uri) ids)
-            | _ ->
-              (* We are using limit=0, so this shouldn't happen*)
-              assert false
+        begin fun index (ocurrences, token) ->
+          match Index.retrieve_l ~limit:0 index token with
+          | [] ->
+            (* Unseen token*)
+            (* TODO: add to list of ocurrences*)
+            let ocurrence = Ocurrences.singleton ([ocurrences], uri) in
+            new_tokens := !new_tokens + 1;
+            Index.add index token ocurrence
+          | ids :: [] ->
+            Index.add index token (Ocurrences.add ([ocurrences], uri) ids)
+          | _ ->
+            (* We are using limit=0, so this shouldn't happen*)
+            assert false
         end
-        index
-        tokens_in_article
+        index tokens_in_article
     in
     {
       index = new_index;
       number_of_docs = number_of_docs + 1;
-      number_of_tokens = number_of_tokens + !new_tokens
+      number_of_tokens = number_of_tokens + !new_tokens;
     }
 
-let add : T.content T.article list -> t -> t =
-  List.fold_right add_one
+let add : T.content T.article list -> t -> t = List.fold_right add_one
 
-let search ?(fuzz = 0) (index : t) (term : string) : (int list list * URI.t) list =
+let search ?(fuzz = 0) (index : t) (term : string) :
+    (int list list * URI.t) list =
   let@ str = List.concat_map @~ Tokenizer.tokenize term in
-  List.concat_map Ocurrences.to_list @@
-    Index.retrieve_l ~limit: fuzz index.index str
+  List.concat_map Ocurrences.to_list
+  @@ Index.retrieve_l ~limit:fuzz index.index str
 
 module BM_25 = struct
-  let sum = List.fold_left (+.) 0.
+  let sum = List.fold_left ( +. ) 0.
 
   (* Inverse document frequency *)
   let idf q (index : t) =
-    let n = Float.of_int @@ List.length @@ search ~fuzz: 0 index q in
-    log @@ ((Float.of_int index.number_of_docs -. n +. 0.5) /. n +. 0.5) +. 1.
+    let n = Float.of_int @@ List.length @@ search ~fuzz:0 index q in
+    log @@ (((Float.of_int index.number_of_docs -. n +. 0.5) /. n) +. 0.5 +. 1.)
 
-  let doc_length d =
-    Float.of_int @@
-    List.length @@
-    Tokenizer.tokenize_article d
+  let doc_length d = Float.of_int @@ List.length @@ Tokenizer.tokenize_article d
 
   let score (d : T.content T.article) (q : string) (index : t) : float =
     let tokens = Tokenizer.tokenize q in
@@ -84,36 +83,30 @@ module BM_25 = struct
     let avg_len = average_doc_length index in
     let k_1 = 1.5 in
     let b = 0.75 in
-    sum @@
-      let@ q_i = List.map @~ tokens in
-      let num_occurrences =
-        Float.of_int @@
-        List.length @@ search index q_i
-      in
-      (* Format.printf "num_occurrences: %f" num_occurrences; *)
-      idf q index *.
-        begin
-          (num_occurrences *. k_1 +. 1.) /.
-            (num_occurrences +. k_1 *. (1. -. b +. (b *. doc_length d /. avg_len))) +.
-            1.
-        end
+    sum
+    @@
+    let@ q_i = List.map @~ tokens in
+    let num_occurrences = Float.of_int @@ List.length @@ search index q_i in
+    (* Format.printf "num_occurrences: %f" num_occurrences; *)
+    idf q index
+    *. begin
+      ((num_occurrences *. k_1) +. 1.)
+      /. (num_occurrences
+         +. (k_1 *. (1. -. b +. (b *. doc_length d /. avg_len))))
+      +. 1.
+    end
 end
 
 let create articles =
-  let index = {
-    index = Index.empty;
-    number_of_docs = 0;
-    number_of_tokens = 0
-  }
-  in
+  let index = {index = Index.empty; number_of_docs = 0; number_of_tokens = 0} in
   add articles index
 
 let marshal (v : t) filename =
   let oc = open_out_bin filename in
-  let@ () = Fun.protect ~finally: (fun () -> close_out oc) in
+  let@ () = Fun.protect ~finally:(fun () -> close_out oc) in
   Marshal.to_channel oc v []
 
 let unmarshal filename : t =
   let ic = open_in_bin filename in
-  let@ () = Fun.protect ~finally: (fun () -> close_in ic) in
+  let@ () = Fun.protect ~finally:(fun () -> close_in ic) in
   Marshal.from_channel ic

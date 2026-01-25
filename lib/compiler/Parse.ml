@@ -6,7 +6,6 @@
 
 open Forester_prelude
 open Forester_core
-
 include Forester_parser.Parse
 
 let parse_channel filename ch =
@@ -23,16 +22,16 @@ let parse_document ~(config : Config.t) doc =
   lexbuf.lex_curr_p <- {lexbuf.lex_curr_p with pos_fname = path};
   parse lexbuf
   |> Result.map (fun nodes ->
-      Tree.{
-        nodes;
-        origin = Physical doc;
-        identity = URI (URI_scheme.path_to_uri ~base: config.url path);
-        timestamp = Some (Unix.time ());
-      }
-    )
+      Tree.
+        {
+          nodes;
+          origin = Physical doc;
+          identity = URI (URI_scheme.path_to_uri ~base:config.url path);
+          timestamp = Some (Unix.time ());
+        })
 
 let parse_file filename =
   let@ () = Reporter.tracef "when parsing file `%s`" filename in
   let ch = open_in filename in
-  Fun.protect ~finally: (fun _ -> close_in ch) @@ fun _ ->
+  Fun.protect ~finally:(fun _ -> close_in ch) @@ fun _ ->
   parse_channel filename ch

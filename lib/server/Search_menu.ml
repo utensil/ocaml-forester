@@ -7,7 +7,6 @@
 open Forester_core
 open Forester_compiler
 open Forester_frontend
-
 open Pure_html
 open HTML
 
@@ -22,13 +21,14 @@ let v =
       ]
       [
         div
-          [class_ "modal-content";]
+          [class_ "modal-content"]
           [
             form
               [
                 class_ "search-form";
                 Hx.post "/search";
-                Hx.trigger "input changed delay:500ms, keyup[key=='Enter'], load";
+                Hx.trigger
+                  "input changed delay:500ms, keyup[key=='Enter'], load";
                 Hx.target "#search-results";
               ]
               [
@@ -40,35 +40,34 @@ let v =
                     name "search";
                     placeholder "Start typing a note title or ID";
                   ];
-                span
-                  []
+                span []
                   [
                     input [type_ "radio"; name "search-for"; value "full-text"];
                     label [for_ "full-text"] [txt "Full text"];
                   ];
-                span
-                  []
+                span []
                   [
                     input [type_ "radio"; name "search-for"; value "title"];
                     label [for_ "title-text"] [txt "title"];
                   ];
               ];
-            ul
-              [id "search-results";]
-              [];
+            ul [id "search-results"] [];
           ];
       ]
   in
   Pure_html.to_string markup
 
 let results (forest : State.t) (links : URI.t list) =
-  Pure_html.to_string @@
-    ul
-      [id "search-results"]
-      (
-        List.filter_map
+  Pure_html.to_string
+  @@ ul
+       [id "search-results"]
+       (List.filter_map
           (fun uri ->
-            let title = State.get_content_of_transclusion {href = uri; target = Title {empty_when_untitled = false}} forest in
+            let title =
+              State.get_content_of_transclusion
+                {href = uri; target = Title {empty_when_untitled = false}}
+                forest
+            in
             Option.map
               (fun t ->
                 a
@@ -77,10 +76,7 @@ let results (forest : State.t) (links : URI.t list) =
                     href "/trees%s" (URI.path_string uri);
                     Hx.target "#tree-container";
                     Hx.swap "outerHTML";
-                  ] @@
-                  Htmx_client.render_content forest t
-              )
-              title
-          )
-          links
-      )
+                  ]
+                @@ Htmx_client.render_content forest t)
+              title)
+          links)

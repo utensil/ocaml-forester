@@ -7,6 +7,4 @@
 open Forester_core
 
 val parse :
-  ?stop_on_err: bool ->
-  Lexing.lexbuf ->
-  (Code.t, Reporter.diagnostic) result
+  ?stop_on_err:bool -> Lexing.lexbuf -> (Code.t, Reporter.diagnostic) result

@@ -9,13 +9,13 @@ module T := Types
 
 type result = {
   articles: T.content T.article list;
-  jobs: Job.job Range.located list
+  jobs: Job.job Range.located list;
 }
 [@@deriving show]
 
 val eval_tree :
-  config: Config.t ->
-  uri: URI.t ->
-  source_path: string option ->
+  config:Config.t ->
+  uri:URI.t ->
+  source_path:string option ->
   Syn.t ->
   result * Reporter.diagnostic list

@@ -7,7 +7,9 @@
 open Forester_prelude
 open Forester_core
 
-open struct module T = Types end
+open struct
+  module T = Types
+end
 
 let parse_flag field header =
   match Http.Header.get header field with
@@ -34,17 +36,17 @@ let parse_section_flags (header : Http.Header.t) : T.section_flags option =
       header_shown;
       metadata_shown;
       numbered;
-      expanded
+      expanded;
     }
 
 let parse_content_target (header : Http.Header.t) : T.content_target option =
   let open Http in
   match Header.get header "Taxon" with
   | Some _ -> Some T.Taxon
-  | None ->
+  | None -> (
     match Header.get header "Mainmatter" with
     | Some _ -> Some T.Mainmatter
-    | None ->
+    | None -> (
       match Header.get header "Full" with
       | Some _ ->
         let@ flags = Option.map @~ parse_section_flags header in
@@ -52,4 +54,4 @@ let parse_content_target (header : Http.Header.t) : T.content_target option =
       | None ->
         let@ _ = Option.bind @@ Header.get header "Title" in
         let@ flags = Option.map @~ parse_title_flags header in
-        T.Title flags
+        T.Title flags))

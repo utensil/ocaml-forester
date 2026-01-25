@@ -23,7 +23,7 @@ type route =
 let routes : route router =
   one_of
     [
-      route (Routes.nil) Index;
+      route Routes.nil Index;
       route (s "fonts" / str /? nil) (fun s -> Font s);
       route (s "style.css" /? nil) Stylesheet;
       route (s "min.js" /? nil) Js_bundle;

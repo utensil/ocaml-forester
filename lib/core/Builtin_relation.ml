@@ -5,7 +5,6 @@
  *)
 
 let make_builtin name = "org.forester.rel." ^ name
-
 let links_to = make_builtin "links-to"
 let transcludes = make_builtin "transcludes"
 let has_author = make_builtin "authored-by"
@@ -15,13 +14,11 @@ let is_node = make_builtin "is-node"
 let is_asset = make_builtin "is-asset"
 let is_article = make_builtin "is-article"
 let in_host = make_builtin "in-host"
-
 let transcludes_rtc = make_builtin "transcludes.reflexive-transitive-closure"
 let transcludes_tc = make_builtin "transcludes.transitive-closure"
 let references = make_builtin "references"
 let is_reference = make_builtin "is-reference"
 let is_person = make_builtin "is-person"
-
 let has_direct_contributor = make_builtin "has-direct-contributor"
 let has_indirect_contributor = make_builtin "has-indirect-contributor"
 
@@ -34,19 +31,27 @@ let reference_taxon : Vertex.t Dx.term =
 let person_taxon : Vertex.t Dx.term =
   Const (Content_vertex (Content [Text "Person"]))
 
-let axioms : _ Dx.script = [
-  is_reference @* [var "X"] << [has_taxon @* [var "X"; reference_taxon]];
-  is_person @* [var "X"] << [has_taxon @* [var "X"; person_taxon]];
-  transcludes_tc @* [var "X"; var "Y"] << [transcludes @* [var "X"; var "Y"]];
-  transcludes_tc @* [var "X"; var "Z"] << [transcludes_tc @* [var "X"; var "Y"]; transcludes @* [var "Y"; var "Z"]];
-  transcludes_rtc @* [var "X"; var "X"] << [is_node @* [var "X"]];
-  transcludes_rtc @* [var "X"; var "Y"] << [transcludes_tc @* [var "X"; var "Y"]];
-  references @* [var "X"; var "Z"]
-  << [
-      transcludes_rtc @* [var "X"; var "Y"];
-      links_to @* [var "Y"; var "Z"];
-      is_reference @* [var "Z"]
-    ];
-  has_direct_contributor @* [var "X"; var "Y"] << [has_author @* [var "X"; var "Y"]];
-  has_indirect_contributor @* [var "X"; var "Z"] << [transcludes_rtc @* [var "X"; var "Y"]; has_direct_contributor @* [var "Y"; var "Z"]];
-]
+let axioms : _ Dx.script =
+  [
+    is_reference @* [var "X"] << [has_taxon @* [var "X"; reference_taxon]];
+    is_person @* [var "X"] << [has_taxon @* [var "X"; person_taxon]];
+    transcludes_tc @* [var "X"; var "Y"] << [transcludes @* [var "X"; var "Y"]];
+    transcludes_tc @* [var "X"; var "Z"]
+    << [transcludes_tc @* [var "X"; var "Y"]; transcludes @* [var "Y"; var "Z"]];
+    transcludes_rtc @* [var "X"; var "X"] << [is_node @* [var "X"]];
+    transcludes_rtc @* [var "X"; var "Y"]
+    << [transcludes_tc @* [var "X"; var "Y"]];
+    references @* [var "X"; var "Z"]
+    << [
+         transcludes_rtc @* [var "X"; var "Y"];
+         links_to @* [var "Y"; var "Z"];
+         is_reference @* [var "Z"];
+       ];
+    has_direct_contributor @* [var "X"; var "Y"]
+    << [has_author @* [var "X"; var "Y"]];
+    has_indirect_contributor @* [var "X"; var "Z"]
+    << [
+         transcludes_rtc @* [var "X"; var "Y"];
+         has_direct_contributor @* [var "Y"; var "Z"];
+       ];
+  ]

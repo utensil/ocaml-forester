@@ -17,32 +17,40 @@ open struct
 end
 
 type diagnostic = Reporter.Message.t Asai.Diagnostic.t
-
 type table = (Lsp.Uri.t, diagnostic list) Hashtbl.t
 
 let send packet =
   let server = Lsp_state.get () in
   LspEio.send server.lsp_io packet
 
-let render_lsp_related_info (uri : L.DocumentUri.t) (message : Asai.Diagnostic.loctext) : L.DiagnosticRelatedInformation.t =
+let render_lsp_related_info (uri : L.DocumentUri.t)
+    (message : Asai.Diagnostic.loctext) : L.DiagnosticRelatedInformation.t =
   let range = Lsp_shims.Loc.lsp_range_of_range message.loc in
   let location = L.Location.create ~uri ~range in
   let message = Asai.Diagnostic.string_of_text message.value in
   L.DiagnosticRelatedInformation.create ~location ~message
 
-let render_lsp_diagnostic (uri : L.DocumentUri.t) (diag : diagnostic) : Lsp_Diagnostic.t =
+let render_lsp_diagnostic (uri : L.DocumentUri.t) (diag : diagnostic) :
+    Lsp_Diagnostic.t =
   let range = Lsp_shims.Loc.lsp_range_of_range diag.explanation.loc in
-  let severity = Lsp_shims.Diagnostic.lsp_severity_of_severity @@ diag.severity in
+  let severity =
+    Lsp_shims.Diagnostic.lsp_severity_of_severity @@ diag.severity
+  in
   let code = `String (Reporter.Message.short_code diag.message) in
   let source =
     let Lsp_state.{forest; _} = Lsp_state.get () in
-    let uri = URI_scheme.lsp_uri_to_uri ~base: forest.config.url uri in
-    let@ doc = Option.map @~ Option.bind (State.find_opt forest uri) Tree.to_doc in
+    let uri = URI_scheme.lsp_uri_to_uri ~base:forest.config.url uri in
+    let@ doc =
+      Option.map @~ Option.bind (State.find_opt forest uri) Tree.to_doc
+    in
     Lsp.Text_document.text doc
   in
   let message = Asai.Diagnostic.string_of_text diag.explanation.value in
-  let relatedInformation = Bwd.to_list @@ Bwd.map (render_lsp_related_info uri) diag.extra_remarks in
-  Lsp_Diagnostic.create ~range ~severity ~code ?source ~message: (`String message) ~relatedInformation ()
+  let relatedInformation =
+    Bwd.to_list @@ Bwd.map (render_lsp_related_info uri) diag.extra_remarks
+  in
+  Lsp_Diagnostic.create ~range ~severity ~code ?source
+    ~message:(`String message) ~relatedInformation ()
 
 let broadcast notif =
   let msg = Broadcast.to_jsonrpc notif in

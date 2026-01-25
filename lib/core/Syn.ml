@@ -22,10 +22,16 @@ type node =
   | Get of t
   | Xml_tag of xml_qname * (xml_qname * t) list * t
   | TeX_cs of TeX_cs.t
-  | Unresolved_ident of ((resolver_data, Range.t option) Trie.t [@opaque]) * Trie.path
+  | Unresolved_ident of
+      ((resolver_data, Range.t option) Trie.t[@opaque]) * Trie.path
   | Prim of Prim.t
   | Object of {self: string option; methods: (string * t) list}
-  | Patch of {obj: t; self: string option; super: string option; methods: (string * t) list}
+  | Patch of {
+      obj: t;
+      self: string option;
+      super: string option;
+      methods: (string * t) list;
+    }
   | Call of t * string
   | Results_of_query
   | Transclude
@@ -51,12 +57,9 @@ type node =
   | Current_tree
 [@@deriving show]
 
-and t = node Range.located list
-[@@deriving show]
+and t = node Range.located list [@@deriving show]
 
-and resolver_data =
-  | Term of t
-  | Xmlns of {xmlns: string; prefix: string}
+and resolver_data = Term of t | Xmlns of {xmlns: string; prefix: string}
 [@@deriving show]
 
 let map f node =
@@ -69,40 +72,28 @@ let map f node =
   | Put (r, s, t) -> Put (f r, f s, f t)
   | Default (r, s, t) -> Default (f r, f s, f t)
   | Get t -> Get (f t)
-  | Xml_tag (q, qs, t) -> Xml_tag (q, List.map (fun (q, t) -> q, f t) qs, f t)
+  | Xml_tag (q, qs, t) -> Xml_tag (q, List.map (fun (q, t) -> (q, f t)) qs, f t)
   | Call (t, s) -> Call (f t, s)
   | Object {self; methods} ->
-    Object {self; methods = List.map (fun (str, t) -> str, f t) methods}
+    Object {self; methods = List.map (fun (str, t) -> (str, f t)) methods}
   | Patch {obj; self; super; methods} ->
-    Patch {obj = f obj; self; super; methods = List.map (fun (str, t) -> str, f t) methods}
+    Patch
+      {
+        obj = f obj;
+        self;
+        super;
+        methods = List.map (fun (str, t) -> (str, f t)) methods;
+      }
   | Dx_sequent (t, ts) -> Dx_sequent (f t, List.map f ts)
   | Dx_query (s, ps, ns) -> Dx_query (s, List.map f ps, List.map f ns)
   | Dx_const (s, n) -> Dx_const (s, f n)
   | Dx_prop (t, ts) -> Dx_prop (f t, List.map f ts)
-  | Text _
-  | Verbatim _
-  | Var _
-  | Sym _
-  | TeX_cs _
-  | Unresolved_ident _
-  | Prim _
-  | Results_of_query
-  | Transclude
-  | Embed_tex
-  | Ref
-  | Title
-  | Parent
-  | Taxon
+  | Text _ | Verbatim _ | Var _ | Sym _ | TeX_cs _ | Unresolved_ident _ | Prim _
+  | Results_of_query | Transclude | Embed_tex | Ref | Title | Parent | Taxon
   | Meta
   | Attribution (_, _)
-  | Tag _
-  | Date
-  | Number
-  | Dx_var _
-  | Dx_execute
-  | Route_asset
-  | Syndicate_current_tree_as_atom_feed
-  | Syndicate_query_as_json_blob
+  | Tag _ | Date | Number | Dx_var _ | Dx_execute | Route_asset
+  | Syndicate_current_tree_as_atom_feed | Syndicate_query_as_json_blob
   | Current_tree ->
     node
 
@@ -111,45 +102,24 @@ let children (node : node Range.located) =
   | Group (_, t) -> t
   | Math (_, t) -> t
   | Subtree (_, t) -> t
-  | Link {dest; title} -> Option.fold ~some: (fun t -> t @ dest) ~none: dest title
+  | Link {dest; title} -> Option.fold ~some:(fun t -> t @ dest) ~none:dest title
   | Fun (_, t) -> t
   | Put (r, s, t) -> r @ s @ t
   | Default (r, s, t) -> r @ s @ t
   | Get t -> t
   | Xml_tag (_, qs, t) -> List.concat_map snd qs @ t
   | Call (t, _) -> t
-  | Object {methods; _} ->
-    List.concat_map snd methods
-  | Patch {obj; methods; _} ->
-    List.concat_map snd methods @
-      obj
+  | Object {methods; _} -> List.concat_map snd methods
+  | Patch {obj; methods; _} -> List.concat_map snd methods @ obj
   | Dx_sequent (t, ts) -> t @ List.concat ts
   | Dx_query (_, ps, ns) -> List.concat ps @ List.concat ns
   | Dx_const (_, n) -> n
   | Dx_prop (t, ts) -> t @ List.concat ts
-  | Text _
-  | Verbatim _
-  | Var _
-  | Sym _
-  | TeX_cs _
-  | Unresolved_ident _
-  | Prim _
-  | Results_of_query
-  | Transclude
-  | Embed_tex
-  | Ref
-  | Title
-  | Parent
-  | Taxon
+  | Text _ | Verbatim _ | Var _ | Sym _ | TeX_cs _ | Unresolved_ident _ | Prim _
+  | Results_of_query | Transclude | Embed_tex | Ref | Title | Parent | Taxon
   | Meta
   | Attribution (_, _)
-  | Tag _
-  | Date
-  | Number
-  | Dx_var _
-  | Dx_execute
-  | Route_asset
-  | Syndicate_current_tree_as_atom_feed
-  | Syndicate_query_as_json_blob
+  | Tag _ | Date | Number | Dx_var _ | Dx_execute | Route_asset
+  | Syndicate_current_tree_as_atom_feed | Syndicate_query_as_json_blob
   | Current_tree ->
     []

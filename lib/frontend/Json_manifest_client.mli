@@ -6,11 +6,7 @@
 
 open Forester_core
 open Forester_compiler
-
 module T := Types
 
 val render_tree :
-  dev: bool ->
-  forest: State.t ->
-  T.content T.article ->
-  Yojson.Safe.t option
+  dev:bool -> forest:State.t -> T.content T.article -> Yojson.Safe.t option

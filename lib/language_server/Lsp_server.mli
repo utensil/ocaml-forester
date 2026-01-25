@@ -9,11 +9,9 @@ module Semantic_tokens = Semantic_tokens
 
 val recv : unit -> Jsonrpc.Packet.t option
 val send : Jsonrpc.Packet.t -> unit
-
 val should_shutdown : unit -> bool
 val initiate_shutdown : unit -> unit
-
-val run : init: Lsp_state.state -> (unit -> 'a) -> 'a
+val run : init:Lsp_state.state -> (unit -> 'a) -> 'a
 
 module Request : sig
   type packed = Lsp.Client_request.packed

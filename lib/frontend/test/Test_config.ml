@@ -12,13 +12,21 @@ open Forester_frontend
 let test_parsing () =
   Alcotest.(check config)
     "is the same"
-    Config.{
-      trees = ["trees"];
-      assets = [];
-      url = URI.of_string_exn "https://www.forester-notes.org/";
-      home = URI.of_string_exn "https://www.forester-notes.org/index/";
-      foreign = [{path = "foreign/forest.json"; route_locally = true; include_in_manifest = true}];
-    }
+    Config.
+      {
+        trees = ["trees"];
+        assets = [];
+        url = URI.of_string_exn "https://www.forester-notes.org/";
+        home = URI.of_string_exn "https://www.forester-notes.org/index/";
+        foreign =
+          [
+            {
+              path = "foreign/forest.json";
+              route_locally = true;
+              include_in_manifest = true;
+            };
+          ];
+      }
     begin
       Forester_core.Reporter.easy_run @@ fun () ->
       Config_parser.parse_forest_config_string
@@ -34,15 +42,15 @@ let test_parsing () =
 let test_missing_fields () =
   Alcotest.(check config)
     "is the same"
-    Config.{
-      trees = ["trees"];
-      assets = [];
-      foreign = [];
-      url = URI.of_string_exn "/";
-      home = URI.of_string_exn "/index/";
-    }
-    (
-      Forester_core.Reporter.easy_run @@ fun () ->
+    Config.
+      {
+        trees = ["trees"];
+        assets = [];
+        foreign = [];
+        url = URI.of_string_exn "/";
+        home = URI.of_string_exn "/index/";
+      }
+    ( Forester_core.Reporter.easy_run @@ fun () ->
       Config_parser.parse_forest_config_string
         {|
         [forest]
@@ -55,15 +63,10 @@ let () =
   let open Alcotest in
   Logs.set_level (Some Debug);
   Logs.set_reporter (Logs.format_reporter ());
-  run
-    "Config parsing"
+  run "Config parsing"
     [
-      "example config works",
-      [
-        test_case "it parses correctly" `Quick test_parsing;
-      ];
-      "can parse config with missing fields",
-      [
-        test_case "" `Quick test_missing_fields;
-      ];
+      ( "example config works",
+        [test_case "it parses correctly" `Quick test_parsing] );
+      ( "can parse config with missing fields",
+        [test_case "" `Quick test_missing_fields] );
     ]

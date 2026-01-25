@@ -28,11 +28,13 @@ Please mail patches by [email](https://git-send-email.io/) to
 <~jonsterling/forester-devel@lists.sr.ht>. General discussion can be mailed to
 <~jonsterling/forester-discuss@lists.sr.ht>.
 
-When you prepare patches, please try to match the surrounding coding style to
-the best of your ability (and do not use `ocamlformat`); patches will not be
-rejected on grounds of poor formatting but they may be reformatted before being
-applied. If you install [Topiary](https://topiary.tweag.io), you can format the
-entire project using `./format.sh`.
+When you prepare patches, please be sure that all code is formatted as follows:
+
+    dune build @fmt
+    dune promote
+
+Patches will not be rejected on grounds of poor formatting but they may be
+reformatted before being applied.
 
 [Join us on IRC](irc://irc.libera.chat/#forester)
 

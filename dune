@@ -4,4 +4,5 @@
 
 (env
  (static
-  (link_flags (-ccopt -static))))
+  (link_flags
+   (-ccopt -static))))

@@ -30,14 +30,10 @@ type t =
   | Parse_error
   | Unbound_method of (string * Value.obj)
   | Type_warning
-  | Type_error of
-    {
-      got: Value.t option;
-      expected: expected_value list
-    }
+  | Type_error of {got: Value.t option; expected: expected_value list}
   | Unbound_fluid_symbol of Symbol.t
   | Unbound_variable of string
-  | Unresolved_identifier of ((Sc.data, R.P.tag) Trie.t [@opaque]) * Trie.path
+  | Unresolved_identifier of ((Sc.data, R.P.tag) Trie.t[@opaque]) * Trie.path
   | Unresolved_xmlns of string
   | Reference_error of URI.t
   | Unhandled_case
@@ -94,7 +90,10 @@ let default_severity : t -> Asai.Diagnostic.severity = function
 let short_code : t -> string = function
   | Import_not_found _ -> "import_not_found"
   | Invalid_URI -> "invalid_uri"
-  | Asset_has_no_content_address _ -> "asset_not_found" (* This is taken from the original wording of the message, but I think this is very confusing.*)
+  | Asset_has_no_content_address _ ->
+    "asset_not_found"
+    (* This is taken from the original wording of the message, but I think this
+       is very confusing.*)
   | Asset_not_found _ -> "asset_not_found"
   | Current_tree_has_no_uri -> "current_tree_has_no_uri"
   | Duplicate_tree _ -> "duplicate_tree"
@@ -152,80 +151,85 @@ let show_expected_value : expected_value -> string = function
 let default_text : t -> Asai.Diagnostic.text = function
   | Import_not_found uri -> Asai.Diagnostic.textf "%a not found" URI.pp uri
   | Unresolved_xmlns prefix ->
-    Asai.Diagnostic.textf "Could not resolve prefix `%s` to XML namespace" prefix
+    Asai.Diagnostic.textf "Could not resolve prefix `%s` to XML namespace"
+      prefix
   | Unresolved_identifier (_, p) ->
-    Asai.Diagnostic.textf "Unknown binding \\%a. To interpret as a TeX control sequence, explicitly enter TeX mode using #{...}." Trie.pp_path p
-  | Type_error {got; expected} ->
-    begin
-      let expected_msg =
-        match expected with
-        | [] -> Asai.Diagnostic.textf "An unknown type error ocurred"
-        | expected :: [] ->
-          Asai.Diagnostic.textf "Expected %s" (show_expected_value expected)
-        | _ ->
-          Asai.Diagnostic.textf "Expected one of %a" (Format.pp_print_list ~pp_sep: (fun out () -> Format.fprintf out ", ") pp_expected_value) expected
-      in
-      let got_msg =
-        match got with
-        | None -> Asai.Diagnostic.textf ""
-        | Some v ->
-          Asai.Diagnostic.textf " but this is %s" (this_is v)
-      in
-      let hint =
-        match got with
-        | Some Value.Clo (_, _, _) -> Asai.Diagnostic.textf "Did you forget to supply an argument?"
-        | Some Value.Content _
-        | Some Value.Dx_prop _
-        | Some Value.Dx_sequent _
-        | Some Value.Dx_query _
-        | Some Value.Dx_var _
-        | Some Value.Dx_const _
-        | Some Value.Sym _
-        | Some Value.Obj _
-        | None ->
-          Asai.Diagnostic.textf ""
-      in
-      Asai.Diagnostic.textf "%t%t.\n%t" expected_msg got_msg hint
-    end
+    Asai.Diagnostic.textf
+      "Unknown binding \\%a. To interpret as a TeX control sequence, \
+       explicitly enter TeX mode using #{...}."
+      Trie.pp_path p
+  | Type_error {got; expected} -> begin
+    let expected_msg =
+      match expected with
+      | [] -> Asai.Diagnostic.textf "An unknown type error ocurred"
+      | expected :: [] ->
+        Asai.Diagnostic.textf "Expected %s" (show_expected_value expected)
+      | _ ->
+        Asai.Diagnostic.textf "Expected one of %a"
+          (Format.pp_print_list
+             ~pp_sep:(fun out () -> Format.fprintf out ", ")
+             pp_expected_value)
+          expected
+    in
+    let got_msg =
+      match got with
+      | None -> Asai.Diagnostic.textf ""
+      | Some v -> Asai.Diagnostic.textf " but this is %s" (this_is v)
+    in
+    let hint =
+      match got with
+      | Some (Value.Clo (_, _, _)) ->
+        Asai.Diagnostic.textf "Did you forget to supply an argument?"
+      | Some (Value.Content _)
+      | Some (Value.Dx_prop _)
+      | Some (Value.Dx_sequent _)
+      | Some (Value.Dx_query _)
+      | Some (Value.Dx_var _)
+      | Some (Value.Dx_const _)
+      | Some (Value.Sym _)
+      | Some (Value.Obj _)
+      | None ->
+        Asai.Diagnostic.textf ""
+    in
+    Asai.Diagnostic.textf "%t%t.\n%t" expected_msg got_msg hint
+  end
   | Asset_not_found msg -> Asai.Diagnostic.text msg
   | Unbound_method (mthd, {prototype = _; methods; _}) ->
     let method_names = List.map fst @@ Value.Method_table.to_list methods in
-    Asai.Diagnostic.textf
-      "Unbound method %s. Available methods are:@.%a"
-      mthd
+    Asai.Diagnostic.textf "Unbound method %s. Available methods are:@.%a" mthd
       Format.(pp_print_list (fun ppf s -> fprintf ppf "   %s" s))
       method_names
   | Uninterpreted_config_options keys ->
-    Asai.Diagnostic.textf
-      "Uninterpreted config option%s: %a"
-      (
-        if List.length keys = 1 then ""
-        else if List.length keys > 1 then "s"
-        else assert false
-      )
+    Asai.Diagnostic.textf "Uninterpreted config option%s: %a"
+      (if List.length keys = 1 then ""
+       else if List.length keys > 1 then "s"
+       else assert false)
       Format.(
         pp_print_list
-          ~pp_sep: (fun out () -> fprintf out ", ")
+          ~pp_sep:(fun out () -> fprintf out ", ")
           (fun ppf k ->
-            fprintf ppf "%a" (pp_print_list ~pp_sep: (fun out () -> fprintf out ".") pp_print_string) k
-          )
-      )
+            fprintf ppf "%a"
+              (pp_print_list
+                 ~pp_sep:(fun out () -> fprintf out ".")
+                 pp_print_string)
+              k))
       keys
   | Using_default_option k ->
     Asai.Diagnostic.textf
       "Configuration option %a is not set. Using default value."
-      Format.(pp_print_list ~pp_sep: (fun out () -> fprintf out ".") pp_print_string)
+      Format.(
+        pp_print_list ~pp_sep:(fun out () -> fprintf out ".") pp_print_string)
       k
   | Required_config_option k ->
     Asai.Diagnostic.textf "Required option %s is not set." k
-  | Broken_link {uri; suggestion} ->
-    begin
-      match suggestion with
-      | None ->
-        Asai.Diagnostic.textf "Potentially broken link to `%a`" URI.pp uri
-      | Some suggestion ->
-        Asai.Diagnostic.textf "Potentially broken link to `%a`; did you mean `%a`?" URI.pp uri URI.pp suggestion
-    end
+  | Broken_link {uri; suggestion} -> begin
+    match suggestion with
+    | None -> Asai.Diagnostic.textf "Potentially broken link to `%a`" URI.pp uri
+    | Some suggestion ->
+      Asai.Diagnostic.textf
+        "Potentially broken link to `%a`; did you mean `%a`?" URI.pp uri URI.pp
+        suggestion
+  end
   | Resource_not_found uri ->
     Asai.Diagnostic.textf "Resource not found: %a" URI.pp uri
   | Duplicate_tree (o1, o2) ->
@@ -234,27 +238,11 @@ let default_text : t -> Asai.Diagnostic.text = function
       | Subtree {parent} -> Format.asprintf "%a" pp_identity parent
       | Undefined -> "undefined"
     in
-    Asai.Diagnostic.textf
-      "%s@ and@ %s@ use@ the@ same@ URI"
-      (show_origin o1)
+    Asai.Diagnostic.textf "%s@ and@ %s@ use@ the@ same@ URI" (show_origin o1)
       (show_origin o2)
-  | Invalid_URI
-  | Asset_has_no_content_address _
-  | Reference_error _
-  | Parse_error
-  | Type_warning
-  | Unbound_fluid_symbol _
-  | Unbound_variable _
-  | Unhandled_case
-  | Transclusion_loop
-  | Internal_error
-  | Configuration_error
-  | Initialization_warning
-  | Routing_error
-  | Profiling _
-  | External_error
-  | Current_tree_has_no_uri
-  | IO_error
-  | Log
-  | Missing_argument ->
+  | Invalid_URI | Asset_has_no_content_address _ | Reference_error _
+  | Parse_error | Type_warning | Unbound_fluid_symbol _ | Unbound_variable _
+  | Unhandled_case | Transclusion_loop | Internal_error | Configuration_error
+  | Initialization_warning | Routing_error | Profiling _ | External_error
+  | Current_tree_has_no_uri | IO_error | Log | Missing_argument ->
     Asai.Diagnostic.text ""

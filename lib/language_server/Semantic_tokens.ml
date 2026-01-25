@@ -9,42 +9,43 @@ open Forester_prelude
 open Forester_core
 open Forester_compiler
 
-open struct module L = Lsp.Types end
+open struct
+  module L = Lsp.Types
+end
 
 let print_array =
-  Format.(
-    pp_print_array
-      ~pp_sep: (fun out () -> fprintf out "; ")
-      pp_print_int
-  )
+  Format.(pp_print_array ~pp_sep:(fun out () -> fprintf out "; ") pp_print_int)
 
 module Token_type = struct
   type t = L.SemanticTokenTypes.t
-  let legend : L.SemanticTokenTypes.t list = [
-    Namespace;
-    Type;
-    Class;
-    Enum;
-    Interface;
-    Struct;
-    TypeParameter;
-    Parameter;
-    Variable;
-    Property;
-    EnumMember;
-    Event;
-    Function;
-    Method;
-    Macro;
-    Keyword;
-    Modifier;
-    Comment;
-    String;
-    Number;
-    Regexp;
-    Operator;
-    Decorator
-  ]
+
+  let legend : L.SemanticTokenTypes.t list =
+    [
+      Namespace;
+      Type;
+      Class;
+      Enum;
+      Interface;
+      Struct;
+      TypeParameter;
+      Parameter;
+      Variable;
+      Property;
+      EnumMember;
+      Event;
+      Function;
+      Method;
+      Macro;
+      Keyword;
+      Modifier;
+      Comment;
+      String;
+      Number;
+      Regexp;
+      Operator;
+      Decorator;
+    ]
+
   let of_builtin t = t
 
   let token_types =
@@ -52,18 +53,16 @@ module Token_type = struct
       (fun s ->
         match L.SemanticTokenTypes.yojson_of_t s with
         | `String s -> s
-        | _ -> assert false
-      )
+        | _ -> assert false)
       legend
 
   let to_int =
     let module Table = MoreLabels.Hashtbl in
     let table =
-      lazy(
-        let t = Table.create (List.length legend) in
-        List.iteri (fun data key -> Table.add t ~key ~data) legend;
-        t
-      )
+      lazy
+        (let t = Table.create (List.length legend) in
+         List.iteri (fun data key -> Table.add t ~key ~data) legend;
+         t)
     in
     fun t -> Table.find (Lazy.force table) t
 
@@ -74,25 +73,24 @@ module Token_type = struct
 end
 
 module Token_modifiers_set = struct
-  let list = [
-    "declaration";
-    "definition";
-    "readonly";
-    "static";
-    "deprecated";
-    "abstract";
-    "async";
-    "modification";
-    "documentation";
-    "defaultLibrary"
-  ]
-  ;;
+  let list =
+    [
+      "declaration";
+      "definition";
+      "readonly";
+      "static";
+      "deprecated";
+      "abstract";
+      "async";
+      "modification";
+      "documentation";
+      "defaultLibrary";
+    ]
 end
 
 let legend =
-  L.SemanticTokensLegend.create
-    ~tokenTypes: Token_type.token_types
-    ~tokenModifiers: Token_modifiers_set.list
+  L.SemanticTokensLegend.create ~tokenTypes:Token_type.token_types
+    ~tokenModifiers:Token_modifiers_set.list
 
 type token = {
   (* node: string; *)
@@ -134,7 +132,7 @@ let group f l =
 let node_to_tokens (_ : Code.node Range.located) _ _list = []
 
 let tokenize_path ~(start : L.Position.t) (path : string list) : token list =
-  let offset = ref (start.character) in
+  let offset = ref start.character in
   Eio.traceln "path has %i segments" (List.length path);
   let@ segment = List.concat_map @~ path in
   let length = String.length segment in
@@ -150,12 +148,11 @@ let tokenize_path ~(start : L.Position.t) (path : string list) : token list =
       token_type;
       token_modifiers = 0;
       (* node = segment *)
-    }
+    };
   ]
 
 let shift offset =
-  List.map @@ fun token ->
-  {token with start_char = token.start_char + offset}
+  List.map @@ fun token -> {token with start_char = token.start_char + offset}
 
 let builtin ~(start : L.Position.t) str tks =
   let offset = String.length str in
@@ -165,19 +162,18 @@ let builtin ~(start : L.Position.t) str tks =
     start_char = start.character;
     length = offset;
     token_type = 5;
-    token_modifiers = 0
-  } :: shift offset tks
+    token_modifiers = 0;
+  }
+  :: shift offset tks
 
 let tokens (nodes : Code.t) : token list =
   let@ Range.{loc; value} = List.concat_map @~ nodes in
   let L.Range.{start; end_} = Lsp_shims.Loc.lsp_range_of_range loc in
   (* Multiline tokens not supported*)
-  if start.line <> end_.line then
-    []
+  if start.line <> end_.line then []
   else
     match value with
-    | Code.Ident path ->
-      tokenize_path ~start path
+    | Code.Ident path -> tokenize_path ~start path
     | Code.Text _ -> []
     | Code.Put (_path, _t) -> []
     (* -> *)
@@ -194,107 +190,106 @@ let tokens (nodes : Code.t) : token list =
     | Code.Hash_ident _
     | Code.Xml_ident (_, _)
     | Code.Subtree (_, _)
-    | Code.Open _
-    | Code.Scope _
+    | Code.Open _ | Code.Scope _
     | Code.Default (_, _)
     | Code.Get _
     | Code.Fun (_, _)
-    | Code.Object _
-    | Code.Patch _
+    | Code.Object _ | Code.Patch _
     | Code.Call (_, _)
     | Code.Decl_xmlns (_, _)
     | Code.Alloc _
     | Code.Dx_sequent (_, _)
     | Code.Dx_query (_, _, _)
     | Code.Dx_prop (_, _)
-    | Code.Dx_var _
-    | Code.Dx_const_content _
-    | Code.Dx_const_uri _
-    | Code.Error _
-    | Code.Comment _
+    | Code.Dx_var _ | Code.Dx_const_content _ | Code.Dx_const_uri _
+    | Code.Error _ | Code.Comment _
     | Code.Namespace (_, _) ->
       []
 
-let process_line_delta (index_of_last_line : int option) (tokens : token list) : int * delta_token list =
+let process_line_delta (index_of_last_line : int option) (tokens : token list) :
+    int * delta_token list =
   let line = (List.hd tokens).line in
   let deltas =
     List.fold_left
-      (fun
-          (last_token, acc)
-          ({start_char;
-            length;
-            token_type;
-            token_modifiers;
-            line;
-            _;
-          } as current_token)
-        ->
+      (fun (last_token, acc)
+           ({start_char; length; token_type; token_modifiers; line; _} as
+            current_token) ->
         match last_token with
         | None ->
-          let delta_line = match index_of_last_line with Some i -> i - line | None -> line in
+          let delta_line =
+            match index_of_last_line with Some i -> i - line | None -> line
+          in
           let delta_start_char = start_char in
-          let t = {delta_line; delta_start_char; length; token_type; token_modifiers} in
+          let t =
+            {delta_line; delta_start_char; length; token_type; token_modifiers}
+          in
           (Some current_token, t :: acc)
         | Some last_token ->
           (*If there is a previous token, we know we are still on the same line*)
           let delta_line = current_token.line - last_token.line in
-          let delta_start_char = if delta_line > 0 then current_token.start_char else current_token.start_char - last_token.start_char in
-          let delta = {delta_line; delta_start_char; length = current_token.length; token_type = current_token.token_type; token_modifiers;} in
-          (Some current_token, delta :: acc)
-      )
-      (None, [])
-      tokens
+          let delta_start_char =
+            if delta_line > 0 then current_token.start_char
+            else current_token.start_char - last_token.start_char
+          in
+          let delta =
+            {
+              delta_line;
+              delta_start_char;
+              length = current_token.length;
+              token_type = current_token.token_type;
+              token_modifiers;
+            }
+          in
+          (Some current_token, delta :: acc))
+      (None, []) tokens
   in
-  line, snd deltas |> List.rev
+  (line, snd deltas |> List.rev)
 
 let delta_tokens (tokens : token list list) : int array =
   tokens
   |> List.fold_left
-      (fun (last_line, acc) tokens_on_line ->
-        let line, delta_tokens = process_line_delta last_line tokens_on_line in
-        Some line, delta_tokens :: acc
-      )
-      (None, [])
-  |> snd
-  |> List.rev
-  |> List.concat
+       (fun (last_line, acc) tokens_on_line ->
+         let line, delta_tokens = process_line_delta last_line tokens_on_line in
+         (Some line, delta_tokens :: acc))
+       (None, [])
+  |> snd |> List.rev |> List.concat
   |> List.concat_map encode_deltas
-  |> List.rev
-  |> Array.of_list
+  |> List.rev |> Array.of_list
 
-let semantic_tokens_delta (_code : Code.node Range.located list) : L.SemanticTokensDelta.t = {
-  L.SemanticTokensDelta.resultId = None;
-  edits = [];
-}
+let semantic_tokens_delta (_code : Code.node Range.located list) :
+    L.SemanticTokensDelta.t =
+  {L.SemanticTokensDelta.resultId = None; edits = []}
 
-let tokenize_document (identifier : L.TextDocumentIdentifier.t) : L.SemanticTokens.t option =
+let tokenize_document (identifier : L.TextDocumentIdentifier.t) :
+    L.SemanticTokens.t option =
   let Lsp_state.{forest; _} = Lsp_state.get () in
-  let uri = URI_scheme.lsp_uri_to_uri ~base: forest.config.url identifier.uri in
+  let uri = URI_scheme.lsp_uri_to_uri ~base:forest.config.url identifier.uri in
   let@ {nodes; _} = Option.map @~ Imports.resolve_uri_to_code forest uri in
   let tokens = tokens nodes in
   Format.(
-    Eio.traceln
-      "%a"
-      (
-        pp_print_list
-          ~pp_sep: (fun out () -> fprintf out "; ")
-          pp_token
-      )
-      tokens
-  );
+    Eio.traceln "%a"
+      (pp_print_list ~pp_sep:(fun out () -> fprintf out "; ") pp_token)
+      tokens);
   let encoded = List.concat_map encode tokens in
   let data = Array.of_list @@ encoded in
   L.SemanticTokens.{data; resultId = None}
 
-let tokenize_document_delta (textDocument : L.TextDocumentIdentifier.t) : L.SemanticTokensDelta.t option =
+let tokenize_document_delta (textDocument : L.TextDocumentIdentifier.t) :
+    L.SemanticTokensDelta.t option =
   let Lsp_state.{forest; _} = Lsp_state.get () in
-  let uri = URI_scheme.lsp_uri_to_uri ~base: forest.config.url textDocument.uri in
+  let uri =
+    URI_scheme.lsp_uri_to_uri ~base:forest.config.url textDocument.uri
+  in
   let@ tree = Option.map @~ Imports.resolve_uri_to_code forest uri in
   semantic_tokens_delta tree.nodes
 
-let on_full_request (params : L.SemanticTokensParams.t) : L.SemanticTokens.t option =
+let on_full_request (params : L.SemanticTokensParams.t) :
+    L.SemanticTokens.t option =
   tokenize_document params.textDocument
 
-let on_delta_request (params : L.SemanticTokensDeltaParams.t) : [`SemanticTokens of L.SemanticTokens.t | `SemanticTokensDelta of L.SemanticTokensDelta.t] option =
+let on_delta_request (params : L.SemanticTokensDeltaParams.t) :
+    [ `SemanticTokens of L.SemanticTokens.t
+    | `SemanticTokensDelta of L.SemanticTokensDelta.t ]
+    option =
   let@ tokens = Option.map @~ tokenize_document_delta params.textDocument in
   `SemanticTokensDelta tokens

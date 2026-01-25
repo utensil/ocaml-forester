@@ -25,7 +25,8 @@ let execute_datalog_script graphs script =
 (* TODO: Why is this not run at the top level? *)
 (* let () = execute_datalog_script Builtin_relation.axioms *)
 
-let run_datalog_query (graphs : env) (q : (string, Vertex.t) Dx.query) : Vertex_set.t =
+let run_datalog_query (graphs : env) (q : (string, Vertex.t) Dx.query) :
+    Vertex_set.t =
   let@ () = Reporter.trace "when running query" in
   (* TODO: See above *)
   let () = execute_datalog_script graphs Builtin_relation.axioms in
@@ -50,39 +51,41 @@ let add_fact graphs rel node =
   in
   execute_datalog_script graphs [{conclusion; premises}]
 
-let rec analyse_content_node graphs (scope : URI.t) (node : 'a T.content_node) : unit =
+let rec analyse_content_node graphs (scope : URI.t) (node : 'a T.content_node) :
+    unit =
   match node with
-  | Text _ | CDATA _ | Route_of_uri _ | Uri _ | Results_of_datalog_query _ | Contextual_number _ -> ()
-  | Transclude transclusion ->
-    analyse_transclusion graphs scope transclusion
+  | Text _ | CDATA _ | Route_of_uri _ | Uri _ | Results_of_datalog_query _
+  | Contextual_number _ ->
+    ()
+  | Transclude transclusion -> analyse_transclusion graphs scope transclusion
   | Xml_elt elt ->
     begin
       let@ attr = List.iter @~ elt.attrs in
       analyse_content graphs scope attr.value
     end;
     analyse_content graphs scope elt.content
-  | Section section ->
-    analyse_section graphs scope section
+  | Section section -> analyse_section graphs scope section
   | Link link ->
-    add_edge graphs Builtin_relation.links_to ~source: (Uri_vertex scope) ~target: (Uri_vertex link.href);
+    add_edge graphs Builtin_relation.links_to ~source:(Uri_vertex scope)
+      ~target:(Uri_vertex link.href);
     analyse_content graphs scope link.content
-  | KaTeX (_, content) ->
-    analyse_content graphs scope content
-  | Artefact artefact ->
-    analyse_artefact graphs scope artefact
-  | Datalog_script script ->
-    execute_datalog_script graphs script
+  | KaTeX (_, content) -> analyse_content graphs scope content
+  | Artefact artefact -> analyse_artefact graphs scope artefact
+  | Datalog_script script -> execute_datalog_script graphs script
 
 and analyse_artefact graphs scope artefact =
   analyse_content graphs scope artefact.content
 
-and analyse_transclusion graphs (scope : URI.t) (transclusion : T.transclusion) : unit =
+and analyse_transclusion graphs (scope : URI.t) (transclusion : T.transclusion)
+    : unit =
   match transclusion.target with
   | Full _ | Mainmatter ->
-    add_edge graphs Builtin_relation.transcludes ~source: (Uri_vertex scope) ~target: (Uri_vertex transclusion.href)
+    add_edge graphs Builtin_relation.transcludes ~source:(Uri_vertex scope)
+      ~target:(Uri_vertex transclusion.href)
   | Title _ | Taxon -> ()
 
-and analyse_content (graphs : env) (scope : URI.t) (content : T.content) : unit =
+and analyse_content (graphs : env) (scope : URI.t) (content : T.content) : unit
+    =
   T.extract_content content |> List.iter @@ analyse_content_node graphs scope
 
 and analyse_attribution graphs (scope : URI.t) (attr : _ T.attribution) =
@@ -91,7 +94,7 @@ and analyse_attribution graphs (scope : URI.t) (attr : _ T.attribution) =
     | Author -> Builtin_relation.has_author
     | Contributor -> Builtin_relation.has_direct_contributor
   in
-  add_edge graphs rel ~source: (Uri_vertex scope) ~target: attr.vertex;
+  add_edge graphs rel ~source:(Uri_vertex scope) ~target:attr.vertex;
   analyse_vertex graphs scope attr.vertex
 
 and analyse_vertex graphs scope vtx =
@@ -101,20 +104,22 @@ and analyse_vertex graphs scope vtx =
 
 and analyse_tag graphs (scope : URI.t) (tag : _ T.vertex) =
   analyse_vertex graphs scope tag;
-  add_edge graphs Builtin_relation.has_tag ~source: (Uri_vertex scope) ~target: tag
+  add_edge graphs Builtin_relation.has_tag ~source:(Uri_vertex scope)
+    ~target:tag
 
 and analyse_taxon graphs (scope : URI.t) (taxon_opt : T.content option) =
   let@ taxon = Option.iter @~ taxon_opt in
   analyse_content graphs scope taxon;
-  add_edge graphs Builtin_relation.has_taxon ~source: (Uri_vertex scope) ~target: (Content_vertex taxon)
+  add_edge graphs Builtin_relation.has_taxon ~source:(Uri_vertex scope)
+    ~target:(Content_vertex taxon)
 
 and analyse_attributions graphs (scope : URI.t) =
   List.iter @@ analyse_attribution graphs scope
 
-and analyse_tags graphs (scope : URI.t) =
-  List.iter @@ analyse_tag graphs scope
+and analyse_tags graphs (scope : URI.t) = List.iter @@ analyse_tag graphs scope
 
-and analyse_frontmatter graphs (scope : URI.t) (fm : T.content T.frontmatter) : unit =
+and analyse_frontmatter graphs (scope : URI.t) (fm : T.content T.frontmatter) :
+    unit =
   Option.iter (analyse_content graphs scope) fm.title;
   analyse_taxon graphs scope fm.taxon;
   analyse_attributions graphs scope fm.attributions;
@@ -127,12 +132,14 @@ and analyse_metas graphs (scope : URI.t) =
 and analyse_meta graphs (scope : URI.t) (_, content) : unit =
   analyse_content graphs scope content
 
-and analyse_section graphs (scope : URI.t) (section : T.content T.section) : unit =
+and analyse_section graphs (scope : URI.t) (section : T.content T.section) :
+    unit =
   begin
     let@ target = Option.iter @~ section.frontmatter.uri in
-    add_edge graphs Builtin_relation.transcludes ~source: (Uri_vertex scope) ~target: (Uri_vertex target)
+    add_edge graphs Builtin_relation.transcludes ~source:(Uri_vertex scope)
+      ~target:(Uri_vertex target)
   end;
-  let scope = Option.value ~default: scope section.frontmatter.uri in
+  let scope = Option.value ~default:scope section.frontmatter.uri in
   analyse_frontmatter graphs scope section.frontmatter;
   analyse_content graphs scope section.mainmatter
 

@@ -8,35 +8,19 @@ open Forester_compiler
 
 type env = Eio_unix.Stdenv.base
 type dir = Eio.Fs.dir_ty Eio.Path.t
-
 type target = HTML | JSON | XML | STRING
 
-val render_forest :
-  dev: bool ->
-  forest: State.t ->
-  unit
-
-val copy_contents_of_dir :
-  env: env ->
-  forest: State.t ->
-  dir ->
-  unit
+val render_forest : dev:bool -> forest:State.t -> unit
+val copy_contents_of_dir : env:env -> forest:State.t -> dir -> unit
 
 val create_tree :
-  env: env ->
-  dest_dir: string option ->
-  prefix: string option ->
-  template: string option ->
-  mode: [`Sequential | `Random] ->
-  forest: State.t ->
+  env:env ->
+  dest_dir:string option ->
+  prefix:string option ->
+  template:string option ->
+  mode:[`Sequential | `Random] ->
+  forest:State.t ->
   string
 
-val json_manifest :
-  dev: bool ->
-  forest: State.t ->
-  string
-
-val complete :
-  forest: State.t ->
-  string ->
-  (string * string) List.t
+val json_manifest : dev:bool -> forest:State.t -> string
+val complete : forest:State.t -> string -> (string * string) List.t

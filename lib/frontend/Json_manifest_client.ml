@@ -13,26 +13,28 @@ open struct
   module PT = Plain_text_client
 end
 
-let render_tree ~dev ~(forest : State.t) (doc : T.content T.article) : Yojson.Safe.t option =
+let render_tree ~dev ~(forest : State.t) (doc : T.content T.article) :
+    Yojson.Safe.t option =
   let@ uri = Option.bind doc.frontmatter.uri in
   (* TODO : Check routing *)
   let route = Legacy_xml_client.route forest uri in
   let title_string =
-    PT.string_of_content ~forest @@
-      State.get_expanded_title doc.frontmatter forest
+    PT.string_of_content ~forest
+    @@ State.get_expanded_title doc.frontmatter forest
   in
   let title = `String title_string in
   let taxon =
     match doc.frontmatter.taxon with
     | None -> `Null
-    | Some content ->
-      `String (PT.string_of_content ~forest content)
+    | Some content -> `String (PT.string_of_content ~forest content)
   in
   let tags =
     `List
       begin
         let@ tag = List.filter_map @~ doc.frontmatter.tags in
-        let@ content = Option.map @~ State.get_title_or_content_of_vertex tag forest in
+        let@ content =
+          Option.map @~ State.get_title_or_content_of_vertex tag forest
+        in
         `String (PT.string_of_content ~forest content)
       end
   in
@@ -50,16 +52,17 @@ let render_tree ~dev ~(forest : State.t) (doc : T.content T.article) : Yojson.Sa
     else []
   in
   (* TODO: filter out anonymous stuff *)
-  Option.some @@
-    let fm =
-      path @
-        [
-          ("title", title);
-          ("uri", `String (URI.display_path_string ~base: forest.config.url uri));
-          ("taxon", taxon);
-          ("tags", tags);
-          ("route", route);
-          ("metas", metas)
-        ]
-    in
-    `Assoc fm
+  Option.some
+  @@
+  let fm =
+    path
+    @ [
+        ("title", title);
+        ("uri", `String (URI.display_path_string ~base:forest.config.url uri));
+        ("taxon", taxon);
+        ("tags", tags);
+        ("route", route);
+        ("metas", metas);
+      ]
+  in
+  `Assoc fm

@@ -17,34 +17,23 @@ let parse_string str =
 
 let _test_parse_error_explanation src expect =
   Alcotest.(check @@ result code string)
-    ""
-    (Result.Error expect)
-    (
-      parse_string src
-      |> Result.map_error
-          (fun d -> Asai.Diagnostic.string_of_text d.explanation.value)
-    )
+    "" (Result.Error expect)
+    (parse_string src
+    |> Result.map_error (fun d ->
+        Asai.Diagnostic.string_of_text d.explanation.value))
 
-let raw_trees = [
-  {
-    path = "parse_error.tree";
-    content = "\\})--aa]jv"
-  };
-  {
-    path = "import_error.tree";
-    content = {|\import{nonexistent}|}
-  }
-]
+let raw_trees =
+  [
+    {path = "parse_error.tree"; content = "\\})--aa]jv"};
+    {path = "import_error.tree"; content = {|\import{nonexistent}|}};
+  ]
 
 let check_diagnostic expect kont =
-  let fatal = fun d ->
-    Alcotest.(check message)
-      ""
-      expect
-      (d.message)
-  in
+  let fatal = fun d -> Alcotest.(check message) "" expect d.message in
   let emit = Fun.const () in
-  Reporter.run ~fatal ~emit (fun () -> kont (); ())
+  Reporter.run ~fatal ~emit (fun () ->
+      kont ();
+      ())
 
 let () =
   let@ env = Eio_main.run in
@@ -52,9 +41,11 @@ let () =
   let _test () =
     let@ tmp_dir = with_test_forest ~env ~raw_trees ~config in
     Sys.chdir (Eio.Path.native_exn tmp_dir);
-    let@ () = check_diagnostic (Resource_not_found (URI.of_string_exn "asdf")) in
+    let@ () =
+      check_diagnostic (Resource_not_found (URI.of_string_exn "asdf"))
+    in
     let@ () = Reporter.easy_run in
-    let forest = Driver.batch_run ~env ~config ~dev: false in
+    let forest = Driver.batch_run ~env ~config ~dev:false in
     Alcotest.(check @@ list action)
       ""
       [
@@ -63,17 +54,15 @@ let () =
         Build_import_graph;
         Expand_all;
         Eval_all;
-        (Run_jobs []);
-        Done
+        Run_jobs [];
+        Done;
       ]
       (List.rev forest.history);
-    Alcotest.(check int) "" 1 (URI.Tbl.length forest.diagnostics);
+    Alcotest.(check int) "" 1 (URI.Tbl.length forest.diagnostics)
   in
   let open Alcotest in
-  run
-    "verify error reporting"
-    [
-      (* "parsing", *)
+  run "verify error reporting"
+    [ (* "parsing", *)
       (* [ *)
       (*   test_case "nonexistent tree" `Quick test; *)
       (* ]; *)
@@ -84,5 +73,4 @@ let () =
       (* [ *)
       (* ]; *)
       (* "driver", *)
-      (* []; *)
-    ]
+      (* []; *) ]

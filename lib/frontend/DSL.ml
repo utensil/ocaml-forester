@@ -8,10 +8,11 @@
 
 open Forester_core
 
-open struct module T = Types end
+open struct
+  module T = Types
+end
 
 let txt str = T.Text str
-
 let p content = T.prim `P @@ T.Content content
 let ul content = T.prim `Ul @@ T.Content content
 let ol content = T.prim `Ol @@ T.Content content
@@ -30,6 +31,7 @@ let route_of_uri uri = T.Route_of_uri uri
 
 module Datalog = struct
   open Datalog_expr
+
   let premises ~rel ~args = {rel; args}
   let prop premises conclusion = {premises; conclusion}
   let const v = Const v
@@ -37,50 +39,23 @@ end
 
 let datalog_script script = T.Datalog_script script
 
-let section
-    ~mainmatter
-    ?(frontmatter = T.default_frontmatter ())
-    ?(flags = T.default_section_flags)
-    ()
-  =
-  T.Section
-    {
-      frontmatter;
-      mainmatter = T.Content mainmatter;
-      flags;
-    }
+let section ~mainmatter ?(frontmatter = T.default_frontmatter ())
+    ?(flags = T.default_section_flags) () =
+  T.Section {frontmatter; mainmatter = T.Content mainmatter; flags}
 
 let xml_elt (prefix, uname) content =
-  let prefix = Option.value ~default: "" prefix in
+  let prefix = Option.value ~default:"" prefix in
   let qname = T.{prefix; uname; xmlns = None} in
-  T.Xml_elt
-    {
-      name = qname;
-      attrs = [];
-      content = T.Content content
-    }
+  T.Xml_elt {name = qname; attrs = []; content = T.Content content}
 
 let transclude href =
-  T.Transclude
-    T.{
-      href = URI.of_string_exn href;
-      target = Mainmatter
-    }
+  T.Transclude T.{href = URI.of_string_exn href; target = Mainmatter}
 
 let artefact content =
-  T.Artefact
-    T.{
-      hash = "";
-      content = Content content;
-      sources = []
-    }
+  T.Artefact T.{hash = ""; content = Content content; sources = []}
 
 let link href content =
-  T.Link
-    {
-      href = URI.of_string_exn href;
-      content = T.Content content;
-    }
+  T.Link {href = URI.of_string_exn href; content = T.Content content}
 
 module Code = struct
   open Code
@@ -88,16 +63,13 @@ module Code = struct
 
   let import_private = Fun.compose (locate_opt None) @@ Code.import_private
   let import_public = Fun.compose (locate_opt None) @@ Code.import_public
-
   let inline_math = Fun.compose (locate_opt None) @@ Code.inline_math
   let display_math = Fun.compose (locate_opt None) @@ Code.display_math
   let parens = Fun.compose (locate_opt None) @@ Code.parens
   let squares = Fun.compose (locate_opt None) @@ Code.squares
   let braces = Fun.compose (locate_opt None) @@ Code.braces
-
   let ident i = locate_opt None @@ Ident i
   let hash_ident str = locate_opt None @@ Hash_ident str
-
   let ul = ident ["ul"]
   let li = ident ["li"]
   let text str = locate_opt None @@ Text str
@@ -114,11 +86,10 @@ end
 module Syn = struct
   open Forester_core.Syn
   open Asai.Range
+
   let fun_ b t = locate_opt None @@ Fun (b, t)
   let prim p = locate_opt None @@ Prim p
-
   let text s = locate_opt None @@ Text s
-
   let parens e = locate_opt None @@ Group (Parens, e)
   let squares e = locate_opt None @@ Group (Squares, e)
   let braces e = locate_opt None @@ Group (Braces, e)

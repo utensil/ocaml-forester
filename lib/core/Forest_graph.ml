@@ -4,34 +4,33 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *)
 
-module G = Graph.Imperative.Digraph.ConcreteBidirectional(Vertex)
+module G = Graph.Imperative.Digraph.ConcreteBidirectional (Vertex)
 include G
-include Graph.Oper.I(G)
-module Map = Graph.Gmap.Vertex(G)
+include Graph.Oper.I (G)
+module Map = Graph.Gmap.Vertex (G)
 
-module Reachability = Graph.Fixpoint.Make(G)(struct
-  type vertex = G.E.vertex
-  type edge = G.E.t
-  type g = G.t
-  type data = bool
-  let direction = Graph.Fixpoint.Forward
-  let equal = (=)
-  let join = (||)
-  let analyze _ = (fun x -> x)
-end)
+module Reachability =
+  Graph.Fixpoint.Make
+    (G)
+    (struct
+      type vertex = G.E.vertex
+      type edge = G.E.t
+      type g = G.t
+      type data = bool
 
-module Topo = Graph.Topological.Make(G)
+      let direction = Graph.Fixpoint.Forward
+      let equal = ( = )
+      let join = ( || )
+      let analyze _ = fun x -> x
+    end)
+
+module Topo = Graph.Topological.Make (G)
+
 let topo_fold = Topo.fold
 let topo_iter = Topo.iter
-
-let safe_succ g x =
-  if mem_vertex g x then succ g x else []
-
+let safe_succ g x = if mem_vertex g x then succ g x else []
 let safe_dependents = safe_succ
-
-let safe_pred g x =
-  if mem_vertex g x then pred g x else []
-
+let safe_pred g x = if mem_vertex g x then pred g x else []
 let immediate_dependencies = safe_pred
 
 let dependencies graph vertex : t =
@@ -40,19 +39,16 @@ let dependencies graph vertex : t =
     iter_pred
       (fun dep ->
         if mem_vertex dep_graph dep then ()
-        else
-          begin
-            add_edge dep_graph dep v;
-            go dep
-          end
-      )
-      graph
-      v
+        else begin
+          add_edge dep_graph dep v;
+          go dep
+        end)
+      graph v
   in
   go vertex;
   dep_graph
 
-module Graphviz = Graph.Graphviz.Dot(struct
+module Graphviz = Graph.Graphviz.Dot (struct
   include G
   module V = Vertex
 

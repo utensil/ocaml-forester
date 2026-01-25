@@ -11,17 +11,24 @@ open Forester_compiler
 
 open struct
   module L = Lsp.Types
+
   let pp_path = Resolver.Scope.pp_path
 end
 
 let compute (params : L.DocumentSymbolParams.t) =
   let uri = params.textDocument.uri in
   let Lsp_state.{forest; _} = Lsp_state.get () in
-  match State.get_code forest @@ URI_scheme.lsp_uri_to_uri ~base: forest.config.url uri with
+  match
+    State.get_code forest
+    @@ URI_scheme.lsp_uri_to_uri ~base:forest.config.url uri
+  with
   | None ->
-    URI.Tbl.iter (fun uri _ -> Logs.debug (fun m -> m "%a" URI.pp uri)) forest.index;
+    URI.Tbl.iter
+      (fun uri _ -> Logs.debug (fun m -> m "%a" URI.pp uri))
+      forest.index;
     Logs.debug (fun m -> m "%s" (Lsp.Uri.to_string uri));
-    Logs.debug (fun m -> m "%a" URI.pp (URI_scheme.lsp_uri_to_uri ~base: forest.config.url uri));
+    Logs.debug (fun m ->
+        m "%a" URI.pp (URI_scheme.lsp_uri_to_uri ~base:forest.config.url uri));
     assert false
   | Some {nodes; _} ->
     let symbols =
@@ -31,40 +38,53 @@ let compute (params : L.DocumentSymbolParams.t) =
       let selectionRange = range in
       match value with
       | Subtree (addr, _) ->
-        let name = Option.value ~default: "anonymous" addr in
+        let name = Option.value ~default:"anonymous" addr in
         let range = Lsp_shims.Loc.lsp_range_of_range loc in
         (* TODO: What should the symbol kind of a subtree be? *)
-        Option.some @@ L.DocumentSymbol.create ~name ~range ~selectionRange ~kind: Namespace ()
+        Option.some
+        @@ L.DocumentSymbol.create ~name ~range ~selectionRange ~kind:Namespace
+             ()
       | Object {self; _} ->
-        let name = Option.value ~default: "anonymous" self in
-        Option.some @@ L.DocumentSymbol.create ~name ~range ~selectionRange ~kind: Object ()
+        let name = Option.value ~default:"anonymous" self in
+        Option.some
+        @@ L.DocumentSymbol.create ~name ~range ~selectionRange ~kind:Object ()
       | Def (name, _, _) ->
         let name = Format.asprintf "%a" pp_path name in
-        Option.some @@ L.DocumentSymbol.create ~name ~range ~selectionRange ~kind: Function ()
+        Option.some
+        @@ L.DocumentSymbol.create ~name ~range ~selectionRange ~kind:Function
+             ()
       | Namespace (name, _) ->
         let name = Format.asprintf "%a" pp_path name in
-        Option.some @@ L.DocumentSymbol.create ~name ~range ~selectionRange ~kind: Namespace ()
+        Option.some
+        @@ L.DocumentSymbol.create ~name ~range ~selectionRange ~kind:Namespace
+             ()
       | Ident path ->
         let name = Format.asprintf "%a" pp_path path in
-        Option.some @@ L.DocumentSymbol.create ~name ~range ~selectionRange ~kind: Constructor ()
+        Option.some
+        @@ L.DocumentSymbol.create ~name ~range ~selectionRange
+             ~kind:Constructor ()
       | Let (path, _, _) ->
         let name = Format.asprintf "%a" pp_path path in
-        Option.some @@ L.DocumentSymbol.create ~name ~range ~selectionRange ~kind: Constructor ()
+        Option.some
+        @@ L.DocumentSymbol.create ~name ~range ~selectionRange
+             ~kind:Constructor ()
       | Xml_ident (pfx, ident) ->
         let name =
           match pfx with
           | None -> Format.asprintf "<%s>" ident
           | Some pfx -> Format.asprintf "<%s:%s>" pfx ident
         in
-        Option.some @@ L.DocumentSymbol.create ~name ~range ~selectionRange ~kind: Constructor ()
+        Option.some
+        @@ L.DocumentSymbol.create ~name ~range ~selectionRange
+             ~kind:Constructor ()
       | Hash_ident _ ->
-        Option.some @@ L.DocumentSymbol.create ~name: "(hash)" ~range ~selectionRange ~kind: Constant ()
-      | Text _
-      | Verbatim _
+        Option.some
+        @@ L.DocumentSymbol.create ~name:"(hash)" ~range ~selectionRange
+             ~kind:Constant ()
+      | Text _ | Verbatim _
       | Group (_, _)
       | Math (_, _)
-      | Open _
-      | Scope _
+      | Open _ | Scope _
       | Put (_, _)
       | Default (_, _)
       | Get _
@@ -77,11 +97,7 @@ let compute (params : L.DocumentSymbolParams.t) =
       | Dx_sequent (_, _)
       | Dx_query (_, _, _)
       | Dx_prop (_, _)
-      | Dx_var _
-      | Dx_const_content _
-      | Dx_const_uri _
-      | Comment _
-      | Error _ ->
+      | Dx_var _ | Dx_const_content _ | Dx_const_uri _ | Comment _ | Error _ ->
         None
     in
     Some (`DocumentSymbol symbols)

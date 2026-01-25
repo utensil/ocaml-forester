@@ -6,14 +6,15 @@
 
 module V = struct
   include Vertex
+
   let to_string = show
 end
 
-module S = Datalog.BottomUp.Hashcons(V)
+module S = Datalog.BottomUp.Hashcons (V)
 
 open struct
   module T = Types
-  module D = Datalog.BottomUp.Make(S)
+  module D = Datalog.BottomUp.Make (S)
 end
 
 type relation = string
@@ -28,9 +29,7 @@ let symbol_of_string str : D.symbol =
   S.make vtx
 
 let pack_vertex vtx : D.symbol = S.make vtx
-
 let var_of_string = String.hash
-
 let mk_var = D.mk_var
 let mk_const vtx = D.mk_const (pack_vertex vtx)
 let mk_literal rel = D.mk_literal (symbol_of_string rel)
@@ -41,6 +40,7 @@ let vertex_of_term = function
   | _ -> failwith "const_of_term: unexpected variable"
 
 type db = D.db
+
 let db_create = D.db_create
 let db_add_fact db lit = D.db_add_fact db lit
 let db_add db clause = D.db_add db clause
@@ -48,7 +48,6 @@ let db_add db clause = D.db_add db clause
 type answers = D.Query.set
 
 let list_of_answers answers =
-  List.map (Array.map vertex_of_term) @@
-    D.Query.to_list answers
+  List.map (Array.map vertex_of_term) @@ D.Query.to_list answers
 
 let ask = D.Query.ask

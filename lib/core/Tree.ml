@@ -38,7 +38,7 @@ type evaluated = {
 [@@deriving show]
 
 type t =
-  | Document of (Lsp.Text_document.t [@opaque])
+  | Document of (Lsp.Text_document.t[@opaque])
   | Parsed of code
   | Expanded of syn
   | Resource of evaluated
@@ -48,10 +48,10 @@ let origin = function
   | Document doc -> Physical doc
   | Parsed parsed -> parsed.origin
   | Expanded expanded -> expanded.code.origin
-  | Resource resource ->
+  | Resource resource -> (
     match resource.expanded with
     | None -> Undefined
-    | Some expanded -> expanded.code.origin
+    | Some expanded -> expanded.code.origin)
 
 let show_phase = function
   | Document _ -> "document"
@@ -76,48 +76,33 @@ let show_phase = function
 (* IDK if subtrees should resolve to their parent document*)
 let to_doc : t -> Lsp.Text_document.t option = function
   | Document doc -> Some doc
-  | Resource {expanded; _} ->
-    begin
-      match expanded with
-      | None -> None
-      | Some {code; _} ->
-        match code.origin with
-        | Physical doc ->
-          Some doc
-        | Subtree _ -> None
-        | Undefined -> None
-    end
-  | Parsed {origin; _;}
-  | Expanded {code = {origin; _}; _;} ->
+  | Resource {expanded; _} -> begin
+    match expanded with
+    | None -> None
+    | Some {code; _} -> (
+      match code.origin with
+      | Physical doc -> Some doc
+      | Subtree _ -> None
+      | Undefined -> None)
+  end
+  | Parsed {origin; _} | Expanded {code = {origin; _}; _} -> (
     match origin with
-    | Physical doc ->
-      Some doc
+    | Physical doc -> Some doc
     | Subtree _ -> None
-    | Undefined -> None
+    | Undefined -> None)
 
 let to_resource : t -> T.content T.resource option = function
-  | Document _
-  | Parsed _
-  | Expanded _ ->
-    None
-  | Resource {resource; _;} -> Some resource
+  | Document _ | Parsed _ | Expanded _ -> None
+  | Resource {resource; _} -> Some resource
 
 let to_evaluated : t -> evaluated option = function
-  | Document _
-  | Parsed _
-  | Expanded _ ->
-    None
+  | Document _ | Parsed _ | Expanded _ -> None
   | Resource evaluated -> Some evaluated
 
 let to_article : t -> T.content T.article option = function
-  | Document _
-  | Parsed _
-  | Expanded _ ->
-    None
-  | Resource {resource; _;} ->
-    match resource with
-    | T.Article a -> Some a
-    | _ -> None
+  | Document _ | Parsed _ | Expanded _ -> None
+  | Resource {resource; _} -> (
+    match resource with T.Article a -> Some a | _ -> None)
 
 let get_frontmatter : t -> T.content T.frontmatter option = function
   | Resource {resource = Types.Article {frontmatter; _}; _} -> Some frontmatter
@@ -129,35 +114,27 @@ let to_code : t -> code option = function
     (* assert false *)
     None
   | Parsed code -> Some code
-  | Resource {expanded; _} ->
-    begin
-      match expanded with
-      | None -> None
-      | Some {code; _} -> Some code
-    end
-  | Expanded {code; _;} -> Some code
+  | Resource {expanded; _} -> begin
+    match expanded with None -> None | Some {code; _} -> Some code
+  end
+  | Expanded {code; _} -> Some code
 
 let to_syn : t -> syn option = function
   | Document _ -> None
   | Parsed _ -> None
   | Expanded syn -> Some syn
-  | Resource {expanded; _} ->
-    expanded
+  | Resource {expanded; _} -> expanded
 
-let get_units : t -> exports option = fun item ->
+let get_units : t -> exports option =
+ fun item ->
   match item with
   | Document _ -> None
   | Parsed _ -> None
   | Expanded {units; _} -> Some units
-  | Resource {expanded; _} ->
-    match expanded with
-    | Some {units; _} -> Some units
-    | None -> None
+  | Resource {expanded; _} -> (
+    match expanded with Some {units; _} -> Some units | None -> None)
 
-let is_unparsed = function
-  | Document _ -> true
-  | _ -> false
-
+let is_unparsed = function Document _ -> true | _ -> false
 let is_parsed t = not @@ is_unparsed t
 
 let is_unexpanded = function
@@ -175,26 +152,27 @@ let is_unevaluated = function
 
 let is_asset = function
   | Document _ | Parsed _ | Expanded _ -> false
-  | Resource {resource; _} ->
-    match resource with
-    | T.Asset _ -> true
-    | _ -> false
+  | Resource {resource; _} -> (
+    match resource with T.Asset _ -> true | _ -> false)
 
-let update_units
-  : t -> exports -> t
-= fun item units ->
+let update_units : t -> exports -> t =
+ fun item units ->
   match item with
-  | Document _
-  | Parsed _ ->
-    Reporter.fatal
-      Internal_error
-      ~extra_remarks: [Asai.Diagnostic.loctext "can't update units for this item. It has not been expanded yet"]
+  | Document _ | Parsed _ ->
+    Reporter.fatal Internal_error
+      ~extra_remarks:
+        [
+          Asai.Diagnostic.loctext
+            "can't update units for this item. It has not been expanded yet";
+        ]
   | Expanded e -> Expanded {e with units}
-  | Resource ({expanded; _} as e) ->
+  | Resource ({expanded; _} as e) -> (
     match expanded with
     | None ->
-      Reporter.fatal
-        Internal_error
-        ~extra_remarks: [Asai.Diagnostic.loctext "can't update units for this item. It is not a tree."]
-    | Some expanded ->
-      Resource {e with expanded = Some {expanded with units}}
+      Reporter.fatal Internal_error
+        ~extra_remarks:
+          [
+            Asai.Diagnostic.loctext
+              "can't update units for this item. It is not a tree.";
+          ]
+    | Some expanded -> Resource {e with expanded = Some {expanded with units}})

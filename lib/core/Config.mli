@@ -4,11 +4,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *)
 
-type foreign = {
-  path: string;
-  route_locally: bool;
-  include_in_manifest: bool
-}
+type foreign = {path: string; route_locally: bool; include_in_manifest: bool}
 [@@deriving show]
 
 type t = {
@@ -21,5 +17,5 @@ type t = {
 [@@deriving show]
 
 val default_url : URI.t
-val default : ?url: URI.t -> unit -> t
+val default : ?url:URI.t -> unit -> t
 val home_uri : t -> URI.t

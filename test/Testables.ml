@@ -8,26 +8,18 @@ open Forester_core
 open Forester_compiler
 open Alcotest
 
-type 'a bwd = 'a Bwd.bwd =
-  | Emp
-  | Snoc of 'a bwd * 'a
+type 'a bwd = 'a Bwd.bwd = Emp | Snoc of 'a bwd * 'a [@@deriving show]
+type backtrace = (Asai.Diagnostic.backtrace Bwd.bwd[@printer pp_bwd])
+
+type severity = Asai.Diagnostic.severity = Hint | Info | Warning | Error | Bug
 [@@deriving show]
 
-type backtrace = Asai.Diagnostic.backtrace Bwd.bwd
-[@printer pp_bwd]
+let pp_loctext =
+ fun fmt text ->
+  Format.pp_print_string fmt
+    (Asai.Diagnostic.string_of_text Asai.Range.(text.value))
 
-type severity = Asai.Diagnostic.severity =
-  | Hint
-  | Info
-  | Warning
-  | Error
-  | Bug
-[@@deriving show]
-
-let pp_loctext = fun fmt text -> Format.pp_print_string fmt (Asai.Diagnostic.string_of_text Asai.Range.(text.value))
-
-type 'a diagnostic =
-  'a Asai.Diagnostic.t = {
+type 'a diagnostic = 'a Asai.Diagnostic.t = {
   severity: Asai.Diagnostic.severity; [@printer pp_severity]
   message: 'a;
   explanation: Asai.Diagnostic.loctext; [@printer pp_loctext]
@@ -36,33 +28,29 @@ type 'a diagnostic =
 }
 [@@deriving show]
 
-let message = testable Reporter.Message.pp (=)
+let message = testable Reporter.Message.pp ( = )
+let delim = testable Forester_core.pp_delim ( = )
+let code = testable Forester_core.Code.pp ( = )
+let code_node = testable Forester_core.Code.pp_node ( = )
+let syn_node = testable Forester_core.Syn.pp_node ( = )
+let syn = testable Syn.pp ( = )
+let eval_result = testable Eval.pp_result ( = )
+let path = testable Trie.pp_path ( = )
+let data = testable Syn.pp_resolver_data ( = )
 
-let delim = testable Forester_core.pp_delim (=)
-let code = testable Forester_core.Code.pp (=)
-let code_node = testable Forester_core.Code.pp_node (=)
-let syn_node = testable Forester_core.Syn.pp_node (=)
-let syn = testable Syn.pp (=)
-let eval_result = testable Eval.pp_result (=)
-let path = testable Trie.pp_path (=)
-let data = testable Syn.pp_resolver_data (=)
 let diagnostic =
   let pp = pp_diagnostic Reporter.Message.pp in
-  testable pp (=)
+  testable pp ( = )
 
 let uri = testable URI.pp URI.equal
-
-let config = Alcotest.testable Config.pp (=)
+let config = Alcotest.testable Config.pp ( = )
 
 let document =
   let pp fmt t = Format.pp_print_string fmt (Lsp.Text_document.text t) in
-  testable pp (=)
+  testable pp ( = )
 
-let tree = testable Code.pp_tree (=)
-
-let result = testable Eval.pp_result (=)
-let content = testable Types.pp_content (=)
-
-let action = testable Action.pp (=)
-
-let completion_type = testable Forester_lsp.Completion.pp_completion (=)
+let tree = testable Code.pp_tree ( = )
+let result = testable Eval.pp_result ( = )
+let content = testable Types.pp_content ( = )
+let action = testable Action.pp ( = )
+let completion_type = testable Forester_lsp.Completion.pp_completion ( = )

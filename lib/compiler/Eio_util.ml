@@ -10,40 +10,36 @@ open Forester_core
 
 let path_of_dir ~env dir =
   try
-    let path = Path.(Eio.Stdenv.fs env / (Unix.realpath dir)) in
+    let path = Path.(Eio.Stdenv.fs env / Unix.realpath dir) in
     assert (Path.is_directory path);
     path
   with
-    | Unix.Unix_error (e, _, m) ->
-      Reporter.fatal
-        IO_error
-        ~extra_remarks: [
-          Asai.Diagnostic.loctextf "%s: %s" (Unix.error_message e) m
-        ]
-    | Assert_failure (_, _, _) ->
-      Reporter.fatal
-        Configuration_error
-        ~extra_remarks: [Asai.Diagnostic.loctextf "%s is not a directory" dir]
+  | Unix.Unix_error (e, _, m) ->
+    Reporter.fatal IO_error
+      ~extra_remarks:
+        [Asai.Diagnostic.loctextf "%s: %s" (Unix.error_message e) m]
+  | Assert_failure (_, _, _) ->
+    Reporter.fatal Configuration_error
+      ~extra_remarks:[Asai.Diagnostic.loctextf "%s is not a directory" dir]
 
 let path_of_file ~env file =
   try
-    let path = Path.(Eio.Stdenv.fs env / (Unix.realpath file)) in
+    let path = Path.(Eio.Stdenv.fs env / Unix.realpath file) in
     assert (Path.is_file path);
     path
-  with
-    | Unix.Unix_error (e, _, m) ->
-      Reporter.fatal Configuration_error ~extra_remarks: [Asai.Diagnostic.loctextf "%s: %s" (Unix.error_message e) m]
+  with Unix.Unix_error (e, _, m) ->
+    Reporter.fatal Configuration_error
+      ~extra_remarks:
+        [Asai.Diagnostic.loctextf "%s: %s" (Unix.error_message e) m]
 
-let paths_of_dirs ~env =
-  List.map (path_of_dir ~env)
-
-let paths_of_files ~env =
-  List.map (path_of_file ~env)
+let paths_of_dirs ~env = List.map (path_of_dir ~env)
+let paths_of_files ~env = List.map (path_of_file ~env)
 
 module NullSink : Flow.Pi.SINK with type t = unit = struct
   type t = unit
+
   let single_write _ _ = 0
-  let copy _ ~src: _ = ()
+  let copy _ ~src:_ = ()
 end
 
 let null_sink () : Flow.sink_ty Resource.t =
@@ -52,23 +48,21 @@ let null_sink () : Flow.sink_ty Resource.t =
 
 let ensure_context_of_path ~perm (path : _ Path.t) =
   let@ path', _ = Option.iter @~ Path.split path in
-  Path.mkdirs ~exists_ok: true ~perm path'
+  Path.mkdirs ~exists_ok:true ~perm path'
 
 let ensure_remove_file path =
-  try
-    Eio.Path.unlink path
-  with
-    | Eio.Exn.Io (Eio.Fs.E (Eio.Fs.Not_found _), _) -> ()
+  try Eio.Path.unlink path
+  with Eio.Exn.Io (Eio.Fs.E (Eio.Fs.Not_found _), _) -> ()
 
 let with_open_tmp_dir ~env kont =
   let dir_name = string_of_int @@ Oo.id (object end) in
   let cwd = Eio.Stdenv.cwd env in
   let tmp = "_tmp" in
   let tmp_path = Eio.Path.(cwd / tmp / dir_name) in
-  Path.mkdirs ~exists_ok: true ~perm: 0o755 tmp_path;
+  Path.mkdirs ~exists_ok:true ~perm:0o755 tmp_path;
   let@ p = Eio.Path.with_open_dir tmp_path in
   let result = kont p in
-  Path.rmtree ~missing_ok: true tmp_path;
+  Path.rmtree ~missing_ok:true tmp_path;
   result
 
 let run_process ?(quiet = false) ~env ~cwd cmd =
@@ -77,52 +71,53 @@ let run_process ?(quiet = false) ~env ~cwd cmd =
   let errbuf = Buffer.create 100 in
   let errsink = Eio.Flow.buffer_sink errbuf in
   let outsink = Eio.Flow.buffer_sink outbuf in
-  if not quiet then
-    Eio.traceln "Running %s" (String.concat " " cmd);
-  try
-    Eio.Process.run ~cwd ~stdout: outsink ~stderr: errsink mgr cmd
-  with
-    | exn ->
-      Eio.traceln "Error: %s" (Buffer.contents errbuf);
-      Eio.traceln "Output: %s" (Buffer.contents outbuf);
-      raise exn
+  if not quiet then Eio.traceln "Running %s" (String.concat " " cmd);
+  try Eio.Process.run ~cwd ~stdout:outsink ~stderr:errsink mgr cmd
+  with exn ->
+    Eio.traceln "Error: %s" (Buffer.contents errbuf);
+    Eio.traceln "Output: %s" (Buffer.contents outbuf);
+    raise exn
 
 let file_exists path =
   try
     let@ _ = Eio.Path.with_open_in path in
     true
-  with
-    | Eio.Io (Eio.Fs.E (Eio.Fs.Not_found _), _) -> false
+  with Eio.Io (Eio.Fs.E (Eio.Fs.Not_found _), _) -> false
 
 let try_create_dir ~cwd dname =
-  let (/) = Path.(/) in
+  let ( / ) = Path.( / ) in
   if Eio.Path.is_directory (cwd / dname) then
-    Reporter.emit
-      Initialization_warning
-      ~extra_remarks: [Asai.Diagnostic.loctextf "`%s` already exists" dname]
+    Reporter.emit Initialization_warning
+      ~extra_remarks:[Asai.Diagnostic.loctextf "`%s` already exists" dname]
   else
-    try
-      Eio.Path.mkdir ~perm: 0o755 (cwd / dname)
-    with
-      | exn ->
-        Forester_core.Reporter.emit Initialization_warning ~extra_remarks: [Asai.Diagnostic.loctextf "Failed to create directory `%s`: %a" dname Eio.Exn.pp exn]
+    try Eio.Path.mkdir ~perm:0o755 (cwd / dname)
+    with exn ->
+      Forester_core.Reporter.emit Initialization_warning
+        ~extra_remarks:
+          [
+            Asai.Diagnostic.loctextf "Failed to create directory `%s`: %a" dname
+              Eio.Exn.pp exn;
+          ]
 
 let try_create_file ~cwd ?(content = "") fname =
-  let (/) = Path.(/) in
+  let ( / ) = Path.( / ) in
   if Eio.Path.is_file (cwd / fname) then
-    Forester_core.Reporter.emit Initialization_warning ~extra_remarks: [Asai.Diagnostic.loctextf "`%s` already exists" fname]
+    Forester_core.Reporter.emit Initialization_warning
+      ~extra_remarks:[Asai.Diagnostic.loctextf "`%s` already exists" fname]
   else
-    try
-      Eio.Path.save ~create: (`Exclusive 0o644) (cwd / fname) content
-    with
-      | exn ->
-        Forester_core.Reporter.emit Initialization_warning ~extra_remarks: [Asai.Diagnostic.loctextf "Failed to create file `%s`: %a" fname Eio.Exn.pp exn]
+    try Eio.Path.save ~create:(`Exclusive 0o644) (cwd / fname) content
+    with exn ->
+      Forester_core.Reporter.emit Initialization_warning
+        ~extra_remarks:
+          [
+            Asai.Diagnostic.loctextf "Failed to create file `%s`: %a" fname
+              Eio.Exn.pp exn;
+          ]
 
 (* TODO: test this! *)
 let copy_to_dir ~env ~cwd ~source ~dest_dir =
   let path = Path.(cwd / dest_dir) in
-  Path.mkdirs ~exists_ok: true ~perm: 0o755 path;
+  Path.mkdirs ~exists_ok:true ~perm:0o755 path;
   if Sys.unix then
-    run_process ~quiet: true ~env ~cwd ["cp"; "-R"; source; dest_dir]
-  else
-    run_process ~quiet: true ~env ~cwd ["xcopy"; source; dest_dir ^ "/"]
+    run_process ~quiet:true ~env ~cwd ["cp"; "-R"; source; dest_dir]
+  else run_process ~quiet:true ~env ~cwd ["xcopy"; source; dest_dir ^ "/"]

@@ -1,0 +1,10 @@
+version=0.28.1
+profile=conventional
+
+exp-grouping=preserve
+cases-exp-indent=2
+space-around-records=false
+space-around-lists=false
+space-around-variants=false
+space-around-arrays=false
+field-space=tight-decl

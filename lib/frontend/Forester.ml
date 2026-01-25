@@ -16,7 +16,6 @@ end
 
 type env = Eio_unix.Stdenv.base
 type dir = Eio.Fs.dir_ty EP.t
-
 type target = HTML | JSON | XML | STRING
 
 let output_dir_name = "output"
@@ -29,8 +28,7 @@ let create_tree ~env ~dest_dir ~prefix ~template ~mode ~(forest : State.t) =
     match template with
     | None -> ""
     | Some name ->
-      EP.load
-        EP.(Eio.Stdenv.cwd env / "templates" / (name ^ ".tree"))
+      EP.load EP.(Eio.Stdenv.cwd env / "templates" / (name ^ ".tree"))
   in
   let body = Format.asprintf "\\date{%a}\n" Human_datetime.pp now in
   let create = `Exclusive 0o644 in
@@ -38,44 +36,49 @@ let create_tree ~env ~dest_dir ~prefix ~template ~mode ~(forest : State.t) =
   let dir =
     match dest_dir with
     | Some dir -> dir
-    | None ->
+    | None -> (
       match forest.config.trees with
       | dir :: _ -> dir
-      | [] -> Reporter.fatal Missing_argument ~extra_remarks: [Asai.Diagnostic.loctext "Unable to guess destination director for new tree; please supply one."]
+      | [] ->
+        Reporter.fatal Missing_argument
+          ~extra_remarks:
+            [
+              Asai.Diagnostic.loctext
+                "Unable to guess destination director for new tree; please \
+                 supply one.";
+            ])
   in
-  let path =
-    EP.(env#fs / dir / fname)
-  in
+  let path = EP.(env#fs / dir / fname) in
   EP.save ~create path @@ body ^ template_content;
   EP.native_exn path
 
 let complete ~(forest : State.t) prefix : (string * string) List.t =
   let config = forest.config in
-  let@ article = List.filter_map @~ List.of_seq @@ State.get_all_articles forest in
+  let@ article =
+    List.filter_map @~ List.of_seq @@ State.get_all_articles forest
+  in
   let@ uri = Option.bind article.frontmatter.uri in
-  let short_uri = URI.display_path_string ~base: config.url uri in
+  let short_uri = URI.display_path_string ~base:config.url uri in
   let@ title = Option.bind article.frontmatter.title in
   let title = Plain_text_client.string_of_content ~forest title in
-  if String.starts_with ~prefix title then
-    Some (short_uri, title)
-  else
-    None
+  if String.starts_with ~prefix title then Some (short_uri, title) else None
 
-let is_hidden_file fname =
-  String.starts_with ~prefix: "." fname
+let is_hidden_file fname = String.starts_with ~prefix:"." fname
 
 let output_path ~cwd ~(forest : State.t) =
   let suffix =
-    String.concat "/" @@
-    List.filter (fun x -> not (x = "")) @@
-    URI.path_components forest.config.url
+    String.concat "/"
+    @@ List.filter (fun x -> not (x = ""))
+    @@ URI.path_components forest.config.url
   in
   Eio.Path.(cwd / output_dir_name / suffix)
 
 let copy_contents_of_dir ~env ~(forest : State.t) dir =
   let cwd = Eio.Stdenv.cwd env in
   let dest_dir = EP.native_exn @@ output_path ~cwd ~forest in
-  Logs.debug (fun m -> m "copying contents of directory %s to %s." (Eio.Path.native_exn dir) dest_dir);
+  Logs.debug (fun m ->
+      m "copying contents of directory %s to %s." (Eio.Path.native_exn dir)
+        dest_dir);
   let@ fname = List.iter @~ EP.read_dir dir in
   if not @@ is_hidden_file fname then
     let path = EP.(dir / fname) in
@@ -87,53 +90,59 @@ let json_manifest ~dev ~(forest : State.t) : string =
   let articles =
     let@ tree = Seq.filter_map @~ Forest.to_seq_values forest.index in
     let@ evaluated = Option.bind @@ Tree.to_evaluated tree in
-    if evaluated.include_in_manifest
-    then Tree.to_article tree
-    else None
+    if evaluated.include_in_manifest then Tree.to_article tree else None
   in
-  articles
-  |> List.of_seq
+  articles |> List.of_seq
   |> List.sort (Forest_util.compare_article ~forest)
   |> List.filter_map (fun tree -> render ~dev tree)
   |> (fun t -> `List t)
   |> Yojson.Safe.to_string
 
 let html_redirect uri_string =
-  Pure_html.to_xml @@
-    let open Pure_html in
-    let open HTML in
-    html
-      []
-      [
-        head
-          []
-          [
-            meta
-              [
-                http_equiv `refresh;
-                content "0;url=%s" uri_string
-              ];
-            meta [charset "utf-8"]
-          ]
-      ]
+  Pure_html.to_xml
+  @@
+  let open Pure_html in
+  let open HTML in
+  html []
+    [
+      head []
+        [
+          meta [http_equiv `refresh; content "0;url=%s" uri_string];
+          meta [charset "utf-8"];
+        ];
+    ]
 
 let outputs_for_article ~(forest : State.t) (article : _ T.article) =
   match article.frontmatter.uri with
   | None -> []
   | Some uri ->
-    let xml_route = URI.with_path_components (URI.append_path_component (URI.path_components uri) "index.xml") uri in
-    let html_route = URI.with_path_components (URI.append_path_component (URI.path_components uri) "index.html") uri in
-    let xml_content = Format.asprintf "%a" (Legacy_xml_client.pp_xml ~forest ~stylesheet: "default.xsl") article in
-    let html_content =
-      html_redirect @@ String.concat "/" @@ "" :: Legacy_xml_client.local_path_components forest.config xml_route
+    let xml_route =
+      URI.with_path_components
+        (URI.append_path_component (URI.path_components uri) "index.xml")
+        uri
     in
-    [xml_route, xml_content; html_route, html_content]
+    let html_route =
+      URI.with_path_components
+        (URI.append_path_component (URI.path_components uri) "index.html")
+        uri
+    in
+    let xml_content =
+      Format.asprintf "%a"
+        (Legacy_xml_client.pp_xml ~forest ~stylesheet:"default.xsl")
+        article
+    in
+    let html_content =
+      html_redirect @@ String.concat "/"
+      @@ ("" :: Legacy_xml_client.local_path_components forest.config xml_route)
+    in
+    [(xml_route, xml_content); (html_route, html_content)]
 
 let outputs_for_asset (asset : T.asset) =
   let route = asset.uri in
-  [route, asset.content]
+  [(route, asset.content)]
 
-let outputs_for_json_blob_syndication ~(forest : State.t) (syndication : _ T.json_blob_syndication) =
+let outputs_for_json_blob_syndication ~(forest : State.t)
+    (syndication : _ T.json_blob_syndication) =
   if URI.host syndication.blob_uri = URI.host forest.config.url then
     let vertices = Forest.run_datalog_query forest.graphs syndication.query in
     let resources =
@@ -142,19 +151,28 @@ let outputs_for_json_blob_syndication ~(forest : State.t) (syndication : _ T.jso
       | Content_vertex _ -> None
       | Uri_vertex uri -> State.get_resource forest uri
     in
-    let json_content = Repr.to_json_string ~minify: true (T.forest_t T.content_t) resources in
-    [syndication.blob_uri, json_content]
-  else
-    []
+    let json_content =
+      Repr.to_json_string ~minify:true (T.forest_t T.content_t) resources
+    in
+    [(syndication.blob_uri, json_content)]
+  else []
 
-let outputs_for_atom_feed_syndication ~(forest : State.t) (syndication : T.atom_feed_syndication) =
-  let atom_nodes = Atom_client.render_feed forest ~source_uri: syndication.source_uri ~feed_uri: syndication.feed_uri in
-  let atom_content = Format.asprintf "%a" (Pure_html.pp_xml ~header: true) atom_nodes in
-  [syndication.feed_uri, atom_content]
+let outputs_for_atom_feed_syndication ~(forest : State.t)
+    (syndication : T.atom_feed_syndication) =
+  let atom_nodes =
+    Atom_client.render_feed forest ~source_uri:syndication.source_uri
+      ~feed_uri:syndication.feed_uri
+  in
+  let atom_content =
+    Format.asprintf "%a" (Pure_html.pp_xml ~header:true) atom_nodes
+  in
+  [(syndication.feed_uri, atom_content)]
 
 let outputs_for_syndication ~(forest : State.t) = function
-  | T.Json_blob syndication -> outputs_for_json_blob_syndication ~forest syndication
-  | T.Atom_feed syndication -> outputs_for_atom_feed_syndication ~forest syndication
+  | T.Json_blob syndication ->
+    outputs_for_json_blob_syndication ~forest syndication
+  | T.Atom_feed syndication ->
+    outputs_for_atom_feed_syndication ~forest syndication
 
 let outputs_for_resource ~(forest : State.t) (evaluated : Tree.evaluated) =
   if not evaluated.route_locally then []
@@ -174,25 +192,38 @@ let render_forest ~dev ~(forest : State.t) : unit =
   begin
     let json_string = json_manifest ~dev ~forest in
     let json_path = EP.(output_path ~cwd ~forest / "forest.json") in
-    Eio_util.ensure_context_of_path ~perm: 0o755 json_path;
-    EP.save ~create: (`Or_truncate 0o644) json_path json_string
+    Eio_util.ensure_context_of_path ~perm:0o755 json_path;
+    EP.save ~create:(`Or_truncate 0o644) json_path json_string
   end;
   let jobs =
     let bare_host_uri = URI.with_path_components [] forest.config.url in
-    let home_route = URI.with_path_components (URI.append_path_component (URI.path_components forest.config.url) "index.html") forest.config.url in
-    let home_content = html_redirect @@ "/" ^ URI.relative_path_string ~base: bare_host_uri (Config.home_uri forest.config) in
-    List.cons [home_route, home_content] @@
-      let@ resource = Eio.Fiber.List.map ~max_fibers: 40 @~ List.of_seq all_resources in
-      let@ () = Reporter.easy_run in
-      outputs_for_resource ~forest resource
+    let home_route =
+      URI.with_path_components
+        (URI.append_path_component
+           (URI.path_components forest.config.url)
+           "index.html")
+        forest.config.url
+    in
+    let home_content =
+      html_redirect @@ "/"
+      ^ URI.relative_path_string ~base:bare_host_uri
+          (Config.home_uri forest.config)
+    in
+    List.cons [(home_route, home_content)]
+    @@
+    let@ resource =
+      Eio.Fiber.List.map ~max_fibers:40 @~ List.of_seq all_resources
+    in
+    let@ () = Reporter.easy_run in
+    outputs_for_resource ~forest resource
   in
   Logs.debug (fun m -> m "Writing %i files to output" (List.length jobs));
   begin
     (* Note: this part appears to be fast! *)
-    let@ items = Eio.Fiber.List.iter ~max_fibers: 20 @~ jobs in
+    let@ items = Eio.Fiber.List.iter ~max_fibers:20 @~ jobs in
     let@ (route : URI.t), content = List.iter @~ items in
     let@ () = Reporter.easy_run in
     let path = EP.(cwd / output_dir_name / uri_to_local_path ~forest route) in
-    Eio_util.ensure_context_of_path ~perm: 0o755 path;
-    EP.save ~create: (`Or_truncate 0o644) path content;
+    Eio_util.ensure_context_of_path ~perm:0o755 path;
+    EP.save ~create:(`Or_truncate 0o644) path content
   end

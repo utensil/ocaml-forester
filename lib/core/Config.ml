@@ -4,11 +4,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *)
 
-type foreign = {
-  path: string;
-  route_locally: bool;
-  include_in_manifest: bool
-}
+type foreign = {path: string; route_locally: bool; include_in_manifest: bool}
 [@@deriving show, repr]
 
 type t = {
@@ -22,12 +18,13 @@ type t = {
 
 let default_url = URI.of_string_exn "http://forest.local/"
 
-let default ?(url = default_url) () : t = {
-  trees = ["trees"];
-  assets = [];
-  foreign = [];
-  url;
-  home = URI_scheme.named_uri ~base: url "index";
-}
+let default ?(url = default_url) () : t =
+  {
+    trees = ["trees"];
+    assets = [];
+    foreign = [];
+    url;
+    home = URI_scheme.named_uri ~base:url "index";
+  }
 
 let home_uri config = config.home

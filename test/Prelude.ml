@@ -8,7 +8,9 @@ open Forester_prelude
 open Forester_core
 open Forester_compiler
 
-open struct module L = Lsp.Types end
+open struct
+  module L = Lsp.Types
+end
 
 let rec strip_syn (syn : Syn.t) : Syn.t =
   let@ Asai.Range.{value; _} = List.map @~ syn in
@@ -24,26 +26,18 @@ let parse_string str =
   let lexbuf = Lexing.from_string str in
   Parse.parse lexbuf
 
-let parse_string_no_loc str =
-  Result.map strip_code @@
-    parse_string str
+let parse_string_no_loc str = Result.map strip_code @@ parse_string str
 
 let with_open_tmp_dir ~env kont =
   let open Eio in
   let cwd = Eio.Stdenv.cwd env in
   let tmp = "_tmp" in
-  Path.mkdirs ~exists_ok: true ~perm: 0o755 Path.(cwd / tmp);
-  let tmp_dir =
-    Filename.temp_dir
-      ~temp_dir: tmp
-      ~perms: 0o755
-      ""
-      ""
-  in
+  Path.mkdirs ~exists_ok:true ~perm:0o755 Path.(cwd / tmp);
+  let tmp_dir = Filename.temp_dir ~temp_dir:tmp ~perms:0o755 "" "" in
   Logs.app (fun m -> m "%s" tmp_dir);
   let tmp_path = Eio.Path.(cwd / tmp_dir) in
   let result = kont tmp_path in
-  Path.rmtree ~missing_ok: true tmp_path;
+  Path.rmtree ~missing_ok:true tmp_path;
   result
 
 let with_test_forest ~env ~raw_trees ~(config : Config.t) kont =
@@ -54,9 +48,8 @@ let with_test_forest ~env ~raw_trees ~(config : Config.t) kont =
       (fun dir_name ->
         let dir = EP.(tmp / dir_name) in
         Eio.traceln "mkdir: %s" dir_name;
-        EP.(mkdir ~perm: 0o755 dir);
-        dir
-      )
+        EP.(mkdir ~perm:0o755 dir);
+        dir)
       config.trees
   in
   let create = `Exclusive 0o644 in
@@ -64,22 +57,10 @@ let with_test_forest ~env ~raw_trees ~(config : Config.t) kont =
   List.iter
     (fun tree ->
       match Filename.dirname tree.path with
-      | "." ->
-        EP.(
-          save
-            ~create
-            (first_tree_dir / tree.path)
-            tree.content
-        )
+      | "." -> EP.(save ~create (first_tree_dir / tree.path) tree.content)
       | dir ->
         Eio.traceln "%s" dir;
-        EP.(
-          save
-            ~create
-            (tmp / dir / Filename.basename tree.path)
-            tree.content
-        )
-    )
+        EP.(save ~create (tmp / dir / Filename.basename tree.path) tree.content))
     raw_trees;
   kont tmp
 
@@ -89,12 +70,13 @@ let mk_tree ~uri ~code ~expanded =
       nodes = expanded;
       identity = URI uri;
       units = Trie.empty;
-      code = {
-        nodes = code;
-        identity = URI uri;
-        origin = Subtree {parent = Anonymous};
-        timestamp = None;
-      }
+      code =
+        {
+          nodes = code;
+          identity = URI uri;
+          origin = Subtree {parent = Anonymous};
+          timestamp = None;
+        };
     }
 
 type test_env = {
@@ -103,20 +85,20 @@ type test_env = {
   position: L.Position.t;
 }
 
-module Test_env = Algaeff.State.Make(struct type t = test_env end)
+module Test_env = Algaeff.State.Make (struct
+  type t = test_env
+end)
 
 let find_tree addr =
   let env = Test_env.get () in
   let dirs = env.dirs in
-  Eio.Path.native_exn @@
-  Option.get @@
-  Dir_scanner.find_tree dirs @@
-  URI_scheme.named_uri ~base: env.config.url addr
+  Eio.Path.native_exn @@ Option.get @@ Dir_scanner.find_tree dirs
+  @@ URI_scheme.named_uri ~base:env.config.url addr
 
 let find_doc (env : test_env) addr : L.TextDocumentIdentifier.t =
   let path =
-    Eio.Path.native_exn @@
-    Option.get @@
-    Dir_scanner.find_tree env.dirs (URI_scheme.named_uri ~base: env.config.url addr)
+    Eio.Path.native_exn @@ Option.get
+    @@ Dir_scanner.find_tree env.dirs
+         (URI_scheme.named_uri ~base:env.config.url addr)
   in
   {uri = Lsp.Uri.of_path path}

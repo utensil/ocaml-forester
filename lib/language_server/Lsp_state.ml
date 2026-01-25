@@ -7,11 +7,10 @@
 
 open Forester_compiler
 
-type state = {
-  forest: State.t;
-  should_shutdown: bool;
-  lsp_io: LspEio.io;
-}
+type state = {forest: State.t; should_shutdown: bool; lsp_io: LspEio.io}
 
-module M = Algaeff.State.Make(struct type t = state end)
+module M = Algaeff.State.Make (struct
+  type t = state
+end)
+
 include M

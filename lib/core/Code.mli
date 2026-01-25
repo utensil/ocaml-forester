@@ -5,7 +5,6 @@
  *)
 
 open Base
-
 module T := Types
 
 type node =
@@ -17,10 +16,7 @@ type node =
   | Hash_ident of string
   | Xml_ident of string option * string
   | Subtree of string option * t
-  | Let of
-    Trie.path
-    * string binding list
-    * t
+  | Let of Trie.path * string binding list * t
   | Open of Trie.path
   | Scope of t
   | Put of Trie.path * t
@@ -31,10 +27,7 @@ type node =
   | Patch of t patch
   | Call of t * string
   | Import of visibility * string
-  | Def of
-    Trie.path
-    * string binding list
-    * t
+  | Def of Trie.path * string binding list * t
   | Decl_xmlns of string * string
   | Alloc of Trie.path
   | Namespace of Trie.path * t
@@ -49,11 +42,7 @@ type node =
 [@@deriving show]
 
 and t = node Range.located list
-
-and 'a _object = {
-  self: string option;
-  methods: (string * 'a) list;
-}
+and 'a _object = {self: string option; methods: (string * 'a) list}
 
 and 'a patch = {
   obj: 'a;
@@ -76,11 +65,9 @@ type tree = {
 val parens : t -> node
 val squares : t -> node
 val braces : t -> node
-
 val import_private : string -> node
 val import_public : string -> node
 val inline_math : t -> node
 val display_math : t -> node
-
 val map : (t -> t) -> node -> node
 val children : node Range.located -> t
