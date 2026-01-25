@@ -89,8 +89,6 @@ type result = {
 }
 [@@deriving show]
 
-module Tape = Tape_effect.Make ()
-
 type eval_env = {
   mode: eval_mode;
   config: Config.t;
@@ -99,8 +97,38 @@ type eval_env = {
   jobs: Job.job Range.located Stack.t;
   emitted_trees: T.content T.article Stack.t;
   heap: Value.obj Symbol_table.t;
-  mutable frontmatter: T.content T.frontmatter;
+  frontmatter: T.content T.frontmatter ref;
+  tape: Syn.t ref;
 }
+
+let pop_node_opt ~env =
+  match env.tape.contents with
+  | node :: nodes ->
+    env.tape := nodes;
+    Some node
+  | [] -> None
+
+let pop_arg_opt ~env =
+  match env.tape.contents with
+  | (Range.{value = Syn.Group (Braces, arg); _} as node) :: nodes ->
+    env.tape := nodes;
+    Some {node with value = arg}
+  | (Range.
+       {
+         value =
+           ( Syn.Sym _ | Syn.Verbatim _ | Syn.Var _ | Syn.Dx_sequent _
+           | Syn.Dx_query _ );
+         _;
+       } as node)
+    :: nodes ->
+    env.tape := nodes;
+    Some {node with value = [node]}
+  | _ -> None
+
+let pop_arg ~env ~loc =
+  match pop_arg_opt ~env with
+  | Some arg -> arg
+  | None -> Reporter.fatal ?loc (Type_error {got = None; expected = [Argument]})
 
 let initial_eval_env config frontmatter : eval_env =
   {
@@ -112,10 +140,11 @@ let initial_eval_env config frontmatter : eval_env =
     emitted_trees = Stack.create ();
     heap = Symbol_table.create 100;
     frontmatter;
+    tape = ref [];
   }
 
 let get_current_uri ~env ~loc =
-  match env.frontmatter.uri with
+  match env.frontmatter.contents.uri with
   | Some uri -> uri
   | None ->
     Reporter.fatal ?loc Internal_error
@@ -191,13 +220,13 @@ let pp_tex_cs fmt = function
   | TeX_cs.Word x -> Format.fprintf fmt "\\%s " x
 
 let rec process_tape ~env =
-  match Tape.pop_node_opt () with
+  match pop_node_opt ~env with
   | None -> Value.Content (T.Content [])
   | Some node -> eval_node ~env node
 
-and eval_tape ~env tape = Tape.run ~tape (fun () -> process_tape ~env)
+and eval_tape ~env tape = process_tape ~env:{env with tape = ref tape}
 
-and eval_pop_arg ~env ~loc = Tape.pop_arg ~loc |> Range.map (eval_tape ~env)
+and eval_pop_arg ~env ~loc = pop_arg ~env ~loc |> Range.map (eval_tape ~env)
 
 and pop_content_arg ~env ~loc = eval_pop_arg ~env ~loc |> extract_content
 
@@ -317,7 +346,7 @@ and eval_node ~env node : Value.t =
       {
         subtree with
         frontmatter =
-          {subtree.frontmatter with uri; designated_parent = frontmatter.uri};
+          {subtree.frontmatter with uri; designated_parent = !frontmatter.uri};
       }
     in
     begin match uri with
@@ -508,7 +537,7 @@ and eval_node ~env node : Value.t =
   | Verbatim str -> emit_content_node ~env ~loc @@ CDATA str
   | Title ->
     let title = pop_content_arg ~env ~loc in
-    env.frontmatter <- {env.frontmatter with title = Some title};
+    env.frontmatter := {env.frontmatter.contents with title = Some title};
     process_tape ~env
   | Parent ->
     let parent_arg = eval_pop_arg ~env ~loc in
@@ -520,13 +549,17 @@ and eval_node ~env node : Value.t =
           ~extra_remarks:
             [Asai.Diagnostic.loctext "Expected valid URI in parent declaration"]
     in
-    env.frontmatter <- {env.frontmatter with designated_parent = Some parent};
+    env.frontmatter :=
+      {env.frontmatter.contents with designated_parent = Some parent};
     process_tape ~env
   | Meta ->
     let k = pop_text_arg ~env ~loc in
     let v = pop_content_arg ~env ~loc in
-    env.frontmatter <-
-      {env.frontmatter with metas = env.frontmatter.metas @ [(k, v)]};
+    env.frontmatter :=
+      {
+        env.frontmatter.contents with
+        metas = env.frontmatter.contents.metas @ [(k, v)];
+      };
     process_tape ~env
   | Attribution (role, type_) ->
     let arg = eval_pop_arg ~env ~loc in
@@ -550,10 +583,10 @@ and eval_node ~env node : Value.t =
         T.Content_vertex (extract_content arg)
     in
     let attribution = T.{role; vertex} in
-    env.frontmatter <-
+    env.frontmatter :=
       {
-        env.frontmatter with
-        attributions = env.frontmatter.attributions @ [attribution];
+        env.frontmatter.contents with
+        attributions = env.frontmatter.contents.attributions @ [attribution];
       };
     process_tape ~env
   | Tag type_ ->
@@ -573,8 +606,11 @@ and eval_node ~env node : Value.t =
             ];
         T.Content_vertex (extract_content arg)
     in
-    env.frontmatter <-
-      {env.frontmatter with tags = env.frontmatter.tags @ [vertex]};
+    env.frontmatter :=
+      {
+        env.frontmatter.contents with
+        tags = env.frontmatter.contents.tags @ [vertex];
+      };
     process_tape ~env
   | Date ->
     let date_str = pop_text_arg ~env ~loc in
@@ -584,17 +620,20 @@ and eval_node ~env node : Value.t =
         ~extra_remarks:
           [Asai.Diagnostic.loctextf "Invalid date string `%s`" date_str]
     | Some date ->
-      env.frontmatter <-
-        {env.frontmatter with dates = env.frontmatter.dates @ [date]};
+      env.frontmatter :=
+        {
+          env.frontmatter.contents with
+          dates = env.frontmatter.contents.dates @ [date];
+        };
       process_tape ~env
     end
   | Number ->
     let num = pop_text_arg ~env ~loc in
-    env.frontmatter <- {env.frontmatter with number = Some num};
+    env.frontmatter := {env.frontmatter.contents with number = Some num};
     process_tape ~env
   | Taxon ->
     let taxon = Some (pop_content_arg ~env ~loc) in
-    env.frontmatter <- {env.frontmatter with taxon};
+    env.frontmatter := {env.frontmatter.contents with taxon};
     process_tape ~env
   | Sym sym -> focus ~env ?loc:node.loc @@ Value.Sym sym
   | Dx_prop (rel, args) ->
@@ -680,7 +719,7 @@ and focus_clo ~env ?loc rho (xs : string option binding list) body =
   match xs with
   | [] -> focus ~env ?loc @@ eval_tape ~env:{env with lex_env = rho} body
   | (info, y) :: ys -> (
-    match Tape.pop_arg_opt () with
+    match pop_arg_opt ~env with
     | Some arg ->
       let yval =
         match info with
@@ -714,7 +753,7 @@ and eval_tree_inner ~env ?(uri : URI.t option) (syn : Syn.t) :
   let attribution_is_author attr =
     match T.(attr.role) with T.Author -> true | _ -> false
   in
-  let outer_frontmatter = env.frontmatter in
+  let outer_frontmatter = env.frontmatter.contents in
   let attributions =
     List.filter attribution_is_author outer_frontmatter.attributions
   in
@@ -723,11 +762,11 @@ and eval_tree_inner ~env ?(uri : URI.t option) (syn : Syn.t) :
       ?source_path:outer_frontmatter.source_path ~dates:outer_frontmatter.dates
       ()
   in
-  let env = {env with frontmatter} in
+  let env = {env with frontmatter = ref frontmatter} in
   let mainmatter =
     {value = eval_tape ~env syn; loc = None} |> extract_content
   in
-  let frontmatter = env.frontmatter in
+  let frontmatter = env.frontmatter.contents in
   let backmatter =
     match uri with Some uri -> default_backmatter ~uri | None -> Content []
   in
@@ -747,7 +786,7 @@ let eval_tree ~(config : Config.t) ~(uri : URI.t) ~(source_path : string option)
       ~emit:push
     @@ fun () ->
     let fm = T.default_frontmatter ~uri ?source_path () in
-    let env = initial_eval_env config fm in
+    let env = initial_eval_env config (ref fm) in
     let main = eval_tree_inner ~env ~uri tree in
     let side = env.emitted_trees |> Stack.to_seq |> List.of_seq in
     let jobs = env.jobs |> Stack.to_seq |> List.of_seq in
