@@ -190,12 +190,12 @@ let pp_tex_cs fmt = function
   | TeX_cs.Symbol x -> Format.fprintf fmt "\\%c" x
   | TeX_cs.Word x -> Format.fprintf fmt "\\%s " x
 
-let rec process_tape ~env () =
+let rec process_tape ~env =
   match Tape.pop_node_opt () with
   | None -> Value.Content (T.Content [])
   | Some node -> eval_node ~env node
 
-and eval_tape ~env tape = Tape.run ~tape (process_tape ~env)
+and eval_tape ~env tape = Tape.run ~tape (fun () -> process_tape ~env)
 
 and eval_pop_arg ~env ~loc = Tape.pop_arg ~loc |> Range.map (eval_tape ~env)
 
@@ -348,7 +348,7 @@ and eval_node ~env node : Value.t =
     | Dx_query query ->
       let job = Job.Syndicate (Json_blob {blob_uri; query}) in
       Stack.push (Range.locate_opt loc job) env.jobs;
-      process_tape ~env ()
+      process_tape ~env
     | other ->
       Reporter.fatal ?loc:query_arg.loc
         (Type_error {expected = [Dx_query]; got = Some other})
@@ -363,7 +363,7 @@ and eval_node ~env node : Value.t =
     in
     let job = Job.Syndicate (Atom_feed {source_uri; feed_uri}) in
     Stack.push (Range.locate_opt loc job) env.jobs;
-    process_tape ~env ()
+    process_tape ~env
   | Embed_tex ->
     let preamble, body =
       let env = {env with mode = TeX_mode} in
@@ -509,7 +509,7 @@ and eval_node ~env node : Value.t =
   | Title ->
     let title = pop_content_arg ~env ~loc in
     env.frontmatter <- {env.frontmatter with title = Some title};
-    process_tape ~env ()
+    process_tape ~env
   | Parent ->
     let parent_arg = eval_pop_arg ~env ~loc in
     let parent =
@@ -521,13 +521,13 @@ and eval_node ~env node : Value.t =
             [Asai.Diagnostic.loctext "Expected valid URI in parent declaration"]
     in
     env.frontmatter <- {env.frontmatter with designated_parent = Some parent};
-    process_tape ~env ()
+    process_tape ~env
   | Meta ->
     let k = pop_text_arg ~env ~loc in
     let v = pop_content_arg ~env ~loc in
     env.frontmatter <-
       {env.frontmatter with metas = env.frontmatter.metas @ [(k, v)]};
-    process_tape ~env ()
+    process_tape ~env
   | Attribution (role, type_) ->
     let arg = eval_pop_arg ~env ~loc in
     let vertex =
@@ -555,7 +555,7 @@ and eval_node ~env node : Value.t =
         env.frontmatter with
         attributions = env.frontmatter.attributions @ [attribution];
       };
-    process_tape ~env ()
+    process_tape ~env
   | Tag type_ ->
     let arg = eval_pop_arg ~env ~loc in
     let vertex =
@@ -575,7 +575,7 @@ and eval_node ~env node : Value.t =
     in
     env.frontmatter <-
       {env.frontmatter with tags = env.frontmatter.tags @ [vertex]};
-    process_tape ~env ()
+    process_tape ~env
   | Date ->
     let date_str = pop_text_arg ~env ~loc in
     begin match Human_datetime.parse_string date_str with
@@ -586,16 +586,16 @@ and eval_node ~env node : Value.t =
     | Some date ->
       env.frontmatter <-
         {env.frontmatter with dates = env.frontmatter.dates @ [date]};
-      process_tape ~env ()
+      process_tape ~env
     end
   | Number ->
     let num = pop_text_arg ~env ~loc in
     env.frontmatter <- {env.frontmatter with number = Some num};
-    process_tape ~env ()
+    process_tape ~env
   | Taxon ->
     let taxon = Some (pop_content_arg ~env ~loc) in
     env.frontmatter <- {env.frontmatter with taxon};
-    process_tape ~env ()
+    process_tape ~env
   | Sym sym -> focus ~env ?loc:node.loc @@ Value.Sym sym
   | Dx_prop (rel, args) ->
     let rel = {node with value = eval_tape ~env rel} |> extract_text in
@@ -657,14 +657,14 @@ and eval_var ~env ~loc (x : string) =
 and focus ~env ?loc = function
   | Clo (rho, xs, body) -> focus_clo ~env ?loc rho xs body
   | Content content -> begin
-    match process_tape ~env () with
+    match process_tape ~env with
     | Content content' ->
       Value.Content (T.concat_compressed_content content content')
     | value -> value
   end
   | ( Sym _ | Obj _ | Dx_prop _ | Dx_sequent _ | Dx_query _ | Dx_var _
     | Dx_const _ ) as v -> begin
-    match process_tape ~env () with
+    match process_tape ~env with
     | Content content when T.strip_whitespace content = T.Content [] -> v
     | v' ->
       Reporter.fatal ?loc
@@ -692,7 +692,7 @@ and focus_clo ~env ?loc rho (xs : string option binding list) body =
       in
       focus_clo ~env ?loc rhoy ys body
     | None -> begin
-      match process_tape ~env () with
+      match process_tape ~env with
       | Content nodes when T.strip_whitespace nodes = T.Content [] ->
         Clo (rho, xs, body)
       | _ ->
