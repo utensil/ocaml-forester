@@ -35,10 +35,6 @@ let add_edge g v w =
     Reporter.fatal Internal_error
       ~extra_remarks:[Asai.Diagnostic.loctextf "%a" Eio.Exn.pp exn]
 
-module Analysis_env = Algaeff.Reader.Make (struct
-  type t = analysis_env
-end)
-
 let resolve_uri_to_code (forest : State.t) (uri : URI.t) : Tree.code option =
   let dirs = Eio_util.paths_of_dirs ~env:forest.env forest.config.trees in
   match Forest.find_opt forest.index uri with
@@ -57,17 +53,16 @@ let resolve_uri_to_code (forest : State.t) (uri : URI.t) : Tree.code option =
         Result.to_option @@ Parse.parse_document ~config:forest.config doc
       | None -> Reporter.fatal (Resource_not_found uri)))
 
-let rec analyse_tree (tree : Tree.code) =
-  let env = Analysis_env.read () in
+let rec analyse_tree ~env (tree : Tree.code) =
   let@ root = Option.iter @~ identity_to_uri tree.identity in
   let code = tree.nodes in
   Forest_graph.add_vertex env.graph (T.Uri_vertex root);
-  analyse_code ~root code
+  analyse_code ~env ~root code
 
-and analyse_code ~root (code : Code.t) = List.iter (analyse_node ~root) code
+and analyse_code ~env ~root (code : Code.t) =
+  List.iter (analyse_node ~env ~root) code
 
-and analyse_node ~root (node : Code.node Asai.Range.located) =
-  let env = Analysis_env.read () in
+and analyse_node ~env ~root (node : Code.node Asai.Range.located) =
   let config = env.forest.config in
   match node.value with
   | Import (_, dep) ->
@@ -81,7 +76,7 @@ and analyse_node ~root (node : Code.node Asai.Range.located) =
       match resolve_uri_to_code env.forest dep_uri with
       | None -> Reporter.fatal ?loc:node.loc (Resource_not_found dep_uri)
       | Some code ->
-        analyse_tree code;
+        analyse_tree ~env code;
         assert false
     end
   | Subtree (addr, nodes) ->
@@ -90,7 +85,7 @@ and analyse_node ~root (node : Code.node Asai.Range.located) =
       | None -> Anonymous
       | Some string -> URI (URI_scheme.named_uri ~base:config.url string)
     in
-    analyse_tree
+    analyse_tree ~env
       {identity; origin = Subtree {parent = URI root}; nodes; timestamp = None}
   | Scope code
   | Namespace (_, code)
@@ -99,19 +94,19 @@ and analyse_node ~root (node : Code.node Asai.Range.located) =
   | Let (_, _, code)
   | Fun (_, code)
   | Def (_, _, code) ->
-    analyse_code ~root code
+    analyse_code ~env ~root code
   | Object {methods; _} | Patch {methods; _} ->
     let@ _, code = List.iter @~ methods in
-    analyse_code ~root code
+    analyse_code ~env ~root code
   | Dx_prop (rel, args) ->
-    analyse_code ~root rel;
-    List.iter (analyse_code ~root) args
+    analyse_code ~env ~root rel;
+    List.iter (analyse_code ~env ~root) args
   | Dx_sequent (concl, premises) ->
-    analyse_code ~root concl;
-    List.iter (analyse_code ~root) premises
+    analyse_code ~env ~root concl;
+    List.iter (analyse_code ~env ~root) premises
   | Dx_query (_, positives, negatives) ->
-    List.iter (analyse_code ~root) positives;
-    List.iter (analyse_code ~root) negatives
+    List.iter (analyse_code ~env ~root) positives;
+    List.iter (analyse_code ~env ~root) negatives
   | Text _ | Hash_ident _
   | Xml_ident (_, _)
   | Verbatim _ | Ident _ | Open _
@@ -126,8 +121,7 @@ and analyse_node ~root (node : Code.node Asai.Range.located) =
 
 let dependencies tree forest =
   let env = {forest; follow = true; graph = Forest_graph.create ()} in
-  let@ () = Analysis_env.run ~env in
-  analyse_tree tree;
+  analyse_tree ~env tree;
   env.graph
 
 let fixup (tree : Tree.code) (forest : State.t) =
@@ -146,9 +140,8 @@ let fixup (tree : Tree.code) (forest : State.t) =
     in
     let new_deps =
       let env = {forest; follow = false; graph} in
-      let@ () = Analysis_env.run ~env in
       begin
-        analyse_tree tree;
+        analyse_tree ~env tree;
         Vertex_set.of_list
         @@ Forest_graph.immediate_dependencies env.graph this_vertex
       end
@@ -182,6 +175,5 @@ let _minimal_dependency_graph : addr:URI.t -> Forest_graph.t =
 
 let build forest =
   let env = {forest; follow = false; graph = Forest_graph.create ()} in
-  let@ () = Analysis_env.run ~env in
-  env.forest |> State.get_all_code |> Seq.iter analyse_tree;
+  env.forest |> State.get_all_code |> Seq.iter (analyse_tree ~env);
   env.graph
