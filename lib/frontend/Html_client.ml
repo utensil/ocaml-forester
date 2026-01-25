@@ -17,31 +17,17 @@ open struct
 end
 
 module Xmlns = Xmlns_effect.Make ()
-
-module Scope = Algaeff.Reader.Make (struct
-  type t = URI.t option
-end)
-
-module Section_depth = Algaeff.Reader.Make (struct
-  type t = int
-end)
-
 module Loop_detection = Loop_detection_effect.Make ()
 
-let hx attrs children =
-  P.std_tag
-    (Format.sprintf "h%i" @@ min 6 @@ Section_depth.read ())
-    attrs children
+type env = {forest: State.t; scope: URI.t option; section_depth: int}
 
-let incr_section_depth k =
-  let i = Section_depth.read () in
-  Section_depth.run ~env:(i + 1) k
+let hx ~env attrs children =
+  P.std_tag (Format.sprintf "h%i" @@ min 6 env.section_depth) attrs children
 
 let route uri = URI.to_string uri
 
-let get_expanded_title frontmatter forest =
-  let scope = Scope.read () in
-  State.get_expanded_title ?scope
+let get_expanded_title ~env frontmatter forest =
+  State.get_expanded_title ?scope:env.scope
     ~flags:T.{empty_when_untitled = true}
     frontmatter forest
 
@@ -59,20 +45,18 @@ let render_xmlns_prefix ({prefix; xmlns} : Forester_xml_names.xmlns_attr) =
   let attr = match prefix with "" -> "xmlns" | _ -> "xmlns:" ^ prefix in
   P.string_attr attr "%s" xmlns
 
-let rec render_content (forest : State.t) (Content content : T.content) :
-    P.node list =
+let rec render_content ~env (Content content : T.content) : P.node list =
   match content with
   | T.Text txt0 :: T.Text txt1 :: content ->
-    render_content forest (Content (T.Text (txt0 ^ txt1) :: content))
+    render_content ~env @@ Content (T.Text (txt0 ^ txt1) :: content)
   | node :: content ->
-    let xs = render_content_node forest node in
-    let ys = render_content forest (Content content) in
+    let xs = render_content_node ~env node in
+    let ys = render_content ~env (Content content) in
     xs @ ys
   | [] -> []
 
-and render_content_node (forest : State.t) (node : 'a T.content_node) :
-    P.node list =
-  let config = forest.config in
+and render_content_node ~env (node : 'a T.content_node) : P.node list =
+  let config = env.forest.config in
   match node with
   | Text str -> [P.txt "%s" str]
   | CDATA str -> [P.txt ~raw:true "<![CDATA[%s]]>" str]
@@ -81,8 +65,8 @@ and render_content_node (forest : State.t) (node : 'a T.content_node) :
     let prefixes_to_add, (name, attrs, content) =
       let@ () = Xmlns.within_scope in
       ( render_xml_qname elt.name,
-        List.map (render_xml_attr forest) elt.attrs,
-        render_content forest elt.content )
+        List.map (render_xml_attr env.forest) elt.attrs,
+        render_content ~env elt.content )
     in
     let attrs =
       let xmlns_attrs = List.map render_xmlns_prefix prefixes_to_add in
@@ -92,7 +76,7 @@ and render_content_node (forest : State.t) (node : 'a T.content_node) :
   | Route_of_uri uri -> [P.txt "%s" (route uri)]
   | Contextual_number uri ->
     let custom_number =
-      let@ resource = Option.bind @@ forest.@{uri} in
+      let@ resource = Option.bind @@ env.forest.@{uri} in
       match resource with
       | T.Article article -> article.frontmatter.number
       | _ -> None
@@ -101,48 +85,54 @@ and render_content_node (forest : State.t) (node : 'a T.content_node) :
     | None -> [P.txt "%s" @@ URI.relative_path_string ~base:config.url uri]
     | Some num -> [P.txt "%s" num]
     end
-  | KaTeX (_, content) -> [P.HTML.code [] @@ render_content forest content]
-  | Artefact artefact -> render_content forest @@ artefact.content
-  | Section section -> render_section forest section
-  | Transclude transclusion -> render_transclusion forest transclusion
-  | Link link -> render_link forest link
+  | KaTeX (_, content) -> [P.HTML.code [] @@ render_content ~env content]
+  | Artefact artefact -> render_content ~env @@ artefact.content
+  | Section section -> render_section ~env section
+  | Transclude transclusion -> render_transclusion ~env transclusion
+  | Link link -> render_link ~env link
   | Results_of_datalog_query _ -> [] (* TODO: just make a list of links *)
   | Datalog_script _ -> []
 
-and render_link (forest : State.t) (link : T.content T.link) : P.node list =
+and render_link ~env (link : T.content T.link) : P.node list =
   [
     P.HTML.a [P.HTML.href "%s" (Format.asprintf "%a" URI.pp link.href)]
-    @@ render_content forest link.content;
+    @@ render_content ~env link.content;
   ]
 
-and render_transclusion (forest : State.t) (transclusion : T.transclusion) :
-    P.node list =
-  match State.get_content_of_transclusion transclusion forest with
+and render_transclusion ~env (transclusion : T.transclusion) : P.node list =
+  match State.get_content_of_transclusion transclusion env.forest with
   | None -> Reporter.fatal (Resource_not_found transclusion.href)
-  | Some content -> render_content forest content
+  | Some content -> render_content ~env content
 
-and render_section forest (section : T.content T.section) : P.node list =
-  let@ () = Scope.run ~env:section.frontmatter.uri in
-  let@ () = incr_section_depth in
+and render_section ~env (section : T.content T.section) : P.node list =
+  let env =
+    {
+      env with
+      section_depth = env.section_depth + 1;
+      scope = section.frontmatter.uri;
+    }
+  in
   [
     P.HTML.section []
       [
         begin match section.frontmatter.title with
         | None -> P.HTML.null []
-        | Some title -> P.HTML.header [] [hx [] @@ render_content forest title]
+        | Some title ->
+          P.HTML.header [] [hx ~env [] @@ render_content ~env title]
         end;
         (if Loop_detection.have_seen_uri_opt section.frontmatter.uri then
            P.txt "Transclusion loop detected, rendering stopped."
          else
            let@ () = Loop_detection.add_seen_uri_opt section.frontmatter.uri in
-           P.HTML.null @@ render_content forest section.mainmatter);
+           P.HTML.null @@ render_content ~env section.mainmatter);
       ];
   ]
 
 let render_article_as_div ?(heading_level = 0) (forest : State.t)
     (article : T.content T.article) : P.node =
-  let@ () = Section_depth.run ~env:heading_level in
-  let@ () = Scope.run ~env:article.frontmatter.uri in
+  let env =
+    {forest; section_depth = heading_level; scope = article.frontmatter.uri}
+  in
   let@ () = Loop_detection.run in
   let reserved = [{prefix = ""; xmlns = "http://www.w3.org/1999/xhtml"}] in
   let@ () = Xmlns.run ~reserved in
@@ -150,5 +140,5 @@ let render_article_as_div ?(heading_level = 0) (forest : State.t)
     (List.map render_xmlns_prefix reserved)
     [
       (let@ () = Loop_detection.add_seen_uri_opt article.frontmatter.uri in
-       P.HTML.null @@ render_content forest article.mainmatter);
+       P.HTML.null @@ render_content ~env article.mainmatter);
     ]
