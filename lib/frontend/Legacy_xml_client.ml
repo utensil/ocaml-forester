@@ -23,10 +23,6 @@ module Xmlns = struct
     run ~reserved:X.reserved_xmlnss @@ fun () -> k X.reserved_xmlnss
 end
 
-module In_backmatter = Algaeff.Reader.Make (struct
-  type t = bool
-end)
-
 let local_path_components (config : Config.t) (uri : URI.t) =
   let host = Option.get @@ URI.host uri in
   let base_host = Option.get @@ URI.host config.url in
@@ -40,39 +36,30 @@ let local_base_url_string (config : Config.t) =
 let route (forest : State.t) uri : URI.t =
   match forest.={uri} with
   | None -> uri
-  | Some tree -> (
+  | Some tree -> begin
     match Tree.to_evaluated tree with
     | Some evaluated when evaluated.route_locally ->
       let path = "" :: local_path_components forest.config uri in
       URI.make ~path ()
-    | _ -> uri)
-
-module Scope = struct
-  open struct
-    module E = Algaeff.Reader.Make (struct
-      type t = URI.t option
-    end)
+    | _ -> uri
   end
 
-  let read = E.read
-
-  let run ~(forest : State.t) ~env kont =
-    let@ () = E.run ~env in
-    let loc_opt =
-      let@ uri = Option.bind env in
-      let@ path = Option.map @~ State.source_path_of_uri uri forest in
-      let position =
-        Range.{source = `File path; offset = 0; start_of_line = 0; line_num = 0}
-      in
-      Range.make (position, position)
-    in
-    let@ () = Reporter.with_loc loc_opt in
-    kont ()
-end
-
-module Loop_detection = Loop_detection_effect.Make ()
-
 let mainmatter_cache = Hashtbl.create 1000
+
+type env = {
+  forest: State.t;
+  in_backmatter: bool;
+  uri: URI.t option;
+  loops: Loop_detection.t;
+}
+
+let range ~env =
+  let@ uri = Option.bind env.uri in
+  let@ path = Option.map @~ State.source_path_of_uri uri env.forest in
+  let position =
+    Range.{source = `File path; offset = 0; start_of_line = 0; line_num = 0}
+  in
+  Range.make (position, position)
 
 let render_xml_qname qname =
   let qname = Xmlns.normalise_qname qname in
@@ -80,9 +67,10 @@ let render_xml_qname qname =
   | "" -> qname.uname
   | _ -> Format.sprintf "%s:%s" qname.prefix qname.uname
 
-let render_xml_attr (forest : State.t) T.{key; value} =
+let render_xml_attr ~env T.{key; value} =
   let str_value =
-    Plain_text_client.string_of_content ~forest ~router:(route forest) value
+    Plain_text_client.string_of_content ~forest:env.forest
+      ~router:(route env.forest) value
   in
   P.string_attr (render_xml_qname key) "%s" str_value
 
@@ -100,113 +88,123 @@ let render_section_flags (dict : T.section_flags) =
     X.optional_ X.numbered dict.numbered;
   ]
 
-let rec render_section forest (section : T.content T.section) : P.node =
+let rec render_section ~env (section : T.content T.section) : P.node =
   let@ _ = Xmlns.run in
   X.tree
     (render_section_flags section.flags)
     [
-      render_frontmatter forest section.frontmatter;
-      (let@ () = Scope.run ~forest ~env:section.frontmatter.uri in
-       X.mainmatter []
-       @@
-       if Loop_detection.have_seen_uri_opt section.frontmatter.uri then
-         [X.info [] [P.txt "Transclusion loop detected, rendering stopped."]]
-       else
-         let@ () = Loop_detection.add_seen_uri_opt section.frontmatter.uri in
-         render_mainmatter forest section);
+      render_frontmatter ~env section.frontmatter;
+      begin
+        let env = {env with uri = section.frontmatter.uri} in
+        X.mainmatter []
+        @@
+        if Loop_detection.have_seen_uri_opt section.frontmatter.uri env.loops
+        then
+          [X.info [] [P.txt "Transclusion loop detected, rendering stopped."]]
+        else
+          render_mainmatter
+            ~env:
+              {
+                env with
+                loops =
+                  Loop_detection.add_seen_uri_opt section.frontmatter.uri
+                    env.loops;
+              }
+            section
+      end;
     ]
 
-and render_mainmatter forest (section : T.content T.section) =
+and render_mainmatter ~env (section : T.content T.section) =
   match section.frontmatter.uri with
-  | None -> render_content forest section.mainmatter
-  | Some uri -> (
+  | None -> render_content ~env section.mainmatter
+  | Some uri -> begin
     match Hashtbl.find_opt mainmatter_cache uri with
     | None ->
-      let nodes = render_content forest section.mainmatter in
+      let nodes = render_content ~env section.mainmatter in
       Hashtbl.add mainmatter_cache uri nodes;
       nodes
-    | Some nodes -> nodes)
+    | Some nodes -> nodes
+  end
 
-and render_frontmatter (forest : State.t)
-    (frontmatter : T.content T.frontmatter) : P.node =
+and render_frontmatter ~env (frontmatter : T.content T.frontmatter) : P.node =
   let result =
     X.frontmatter []
       [
-        render_attributions forest frontmatter.uri frontmatter.attributions;
-        render_dates forest frontmatter.dates;
-        X.conditional forest.dev
-          (X.optional (X.source_path [] "%s") frontmatter.source_path);
+        render_attributions ~env frontmatter.uri frontmatter.attributions;
+        render_dates ~env frontmatter.dates;
+        X.conditional env.forest.dev
+        @@ X.optional (X.source_path [] "%s") frontmatter.source_path;
         X.optional
           (fun uri -> X.uri [] "%s" @@ URI.to_string uri)
           frontmatter.uri;
         X.optional
           (fun uri ->
             X.display_uri [] "%s"
-            @@ URI.display_path_string ~base:forest.config.url uri)
+            @@ URI.display_path_string ~base:env.forest.config.url uri)
           frontmatter.uri;
         X.optional (X.route [] "%s")
-        @@ Option.map (Fun.compose URI.to_string (route forest)) frontmatter.uri;
+        @@ Option.map
+             (Fun.compose URI.to_string (route env.forest))
+             frontmatter.uri;
         begin match frontmatter.title with
         | None -> X.null []
         | Some _ ->
           let title =
-            State.get_expanded_title ?scope:(Scope.read ()) frontmatter forest
+            State.get_expanded_title ?scope:env.uri frontmatter env.forest
           in
           X.title
             [
               X.text_ "%s"
-              @@ Plain_text_client.string_of_content ~forest
-                   ~router:(route forest) title;
+              @@ Plain_text_client.string_of_content ~forest:env.forest
+                   ~router:(route env.forest) title;
             ]
-          @@ render_content forest title
+          @@ render_content ~env title
         end;
         begin match frontmatter.taxon with
         | None -> X.null []
-        | Some taxon -> X.taxon [] @@ render_content forest taxon
+        | Some taxon -> X.taxon [] @@ render_content ~env taxon
         end;
-        X.null @@ List.map (render_meta forest) frontmatter.metas;
+        X.null @@ List.map (render_meta ~env) frontmatter.metas;
       ]
   in
   result
 
-and render_meta forest (key, body) =
-  X.meta [X.name "%s" key] @@ render_content forest body
+and render_meta ~env (key, body) =
+  X.meta [X.name "%s" key] @@ render_content ~env body
 
-and render_content (forest : State.t) (Content content : T.content) :
-    P.node list =
+and render_content ~env (Content content : T.content) : P.node list =
   match content with
   | T.Text txt0 :: T.Text txt1 :: content ->
-    render_content forest (Content (T.Text (txt0 ^ txt1) :: content))
+    render_content ~env (Content (T.Text (txt0 ^ txt1) :: content))
   | node :: content ->
-    let xs = render_content_node forest node in
-    let ys = render_content forest (Content content) in
+    let xs = render_content_node ~env node in
+    let ys = render_content ~env (Content content) in
     xs @ ys
   | [] -> []
 
-and render_content_node (forest : State.t) (node : 'a T.content_node) :
-    P.node list =
+and render_content_node ~env (node : 'a T.content_node) : P.node list =
   match node with
   | Text str -> [P.txt "%s" str]
   | CDATA str -> [P.txt ~raw:true "<![CDATA[%s]]>" str]
   | Uri uri ->
-    [P.txt "%s" (URI.display_path_string ~base:forest.config.url uri)]
-  | Route_of_uri uri -> [P.txt "%s" (URI.to_string (route forest uri))]
+    [P.txt "%s" (URI.display_path_string ~base:env.forest.config.url uri)]
+  | Route_of_uri uri -> [P.txt "%s" (URI.to_string (route env.forest uri))]
   | Xml_elt elt ->
     let prefixes_to_add, (name, attrs, content) =
       let@ () = Xmlns.within_scope in
       ( render_xml_qname elt.name,
-        List.map (render_xml_attr forest) elt.attrs,
-        render_content forest elt.content )
+        List.map (render_xml_attr ~env) elt.attrs,
+        render_content ~env elt.content )
     in
     let attrs =
       let xmlns_attrs = List.map render_xmlns_prefix prefixes_to_add in
       attrs @ xmlns_attrs
     in
     [P.std_tag name attrs content]
-  | Transclude transclusion -> render_transclusion forest transclusion
+  | Transclude transclusion -> render_transclusion ~env transclusion
   | Contextual_number uri ->
     let custom_number =
-      let@ resource = Option.bind @@ forest.@{uri} in
+      let@ resource = Option.bind @@ env.forest.@{uri} in
       match resource with
       | T.Article article -> article.frontmatter.number
       | _ -> None
@@ -218,12 +216,12 @@ and render_content_node (forest : State.t) (node : 'a T.content_node) :
           [
             X.uri_ "%s" @@ URI.to_string uri;
             X.display_uri_ "%s"
-            @@ URI.display_path_string ~base:forest.config.url uri;
+            @@ URI.display_path_string ~base:env.forest.config.url uri;
           ];
       ]
     | Some num -> [P.txt "%s" num]
     end
-  | Link link -> render_link forest link
+  | Link link -> render_link ~env link
   | Results_of_datalog_query q ->
     let article_to_section =
       T.article_to_section
@@ -236,22 +234,24 @@ and render_content_node (forest : State.t) (node : 'a T.content_node) :
             metadata_shown = Some true;
           }
     in
-    let results = Forest.run_datalog_query forest.graphs q in
-    let@ article = List.map @~ Forest_util.get_sorted_articles forest results in
-    render_section forest @@ article_to_section article
-  | Section section -> [render_section forest section]
+    let results = Forest.run_datalog_query env.forest.graphs q in
+    let@ article =
+      List.map @~ Forest_util.get_sorted_articles env.forest results
+    in
+    render_section ~env @@ article_to_section article
+  | Section section -> [render_section ~env section]
   | KaTeX (mode, content) ->
     let display = match mode with Inline -> "inline" | Display -> "block" in
     let body = Format.asprintf "%a" TeX_like.pp_content content in
     [X.tex [X.display "%s" display] "<![CDATA[%s]]>" body]
-  | Artefact resource -> [render_artefact forest resource]
+  | Artefact resource -> [render_artefact ~env resource]
   | Datalog_script _ -> []
 
-and render_artefact forest (resource : T.content T.artefact) =
+and render_artefact ~env (resource : T.content T.artefact) =
   X.resource
     [X.hash "%s" resource.hash]
     [
-      X.resource_content [] @@ render_content forest resource.content;
+      X.resource_content [] @@ render_content ~env resource.content;
       render_resource_sources resource.sources;
     ]
 
@@ -263,79 +263,81 @@ and render_resource_source source =
     [X.type_ "%s" source.type_; X.resource_part "%s" source.part]
     "<![CDATA[%s]]>" source.source
 
-and render_transclusion (forest : State.t) (transclusion : T.transclusion) :
-    P.node list =
-  match State.get_content_of_transclusion transclusion forest with
-  | None -> Reporter.fatal (Resource_not_found transclusion.href)
-  | Some content -> render_content forest content
+and render_transclusion ~env (transclusion : T.transclusion) : P.node list =
+  match State.get_content_of_transclusion transclusion env.forest with
+  | None ->
+    Reporter.fatal ?loc:(range ~env) (Resource_not_found transclusion.href)
+  | Some content -> render_content ~env content
 
-and render_link (forest : State.t) (link : T.content T.link) : P.node list =
-  let article_opt = State.get_article link.href forest in
+and render_link ~env (link : T.content T.link) : P.node list =
+  let article_opt = State.get_article link.href env.forest in
   let attrs =
     match article_opt with
     | None ->
-      begin if not @@ In_backmatter.read () then
-        match State.suggestion_for_uri link.href forest with
+      begin if not env.in_backmatter then
+        match State.suggestion_for_uri link.href env.forest with
         | Ok -> ()
         | Not_found {suggestion} ->
-          Reporter.emit @@ Broken_link {uri = link.href; suggestion}
+          Reporter.emit ?loc:(range ~env)
+          @@ Broken_link {uri = link.href; suggestion}
       end;
       [
-        X.href "%s" @@ URI.to_string @@ route forest link.href;
+        X.href "%s" @@ URI.to_string @@ route env.forest link.href;
         X.type_ "external";
       ]
     | Some article ->
       [
-        X.href "%s" @@ URI.to_string @@ route forest link.href;
+        X.href "%s" @@ URI.to_string @@ route env.forest link.href;
         X.title_ "%s"
-        @@ Plain_text_client.string_of_content ~forest ~router:(route forest)
-        @@ State.get_expanded_title ?scope:(Scope.read ()) article.frontmatter
-             forest;
+        @@ Plain_text_client.string_of_content ~forest:env.forest
+             ~router:(route env.forest)
+        @@ State.get_expanded_title ?scope:env.uri article.frontmatter
+             env.forest;
         X.optional_ (X.uri_ "%s")
         @@ Option.map URI.to_string article.frontmatter.uri;
         X.optional_ (X.display_uri_ "%s")
         @@ Option.map
-             (URI.display_path_string ~base:forest.config.url)
+             (URI.display_path_string ~base:env.forest.config.url)
              article.frontmatter.uri;
         X.type_ "local";
       ]
   in
-  [X.link attrs @@ render_content forest link.content]
+  [X.link attrs @@ render_content ~env link.content]
 
-and render_attributions (forest : State.t) (scope : URI.t option)
+and render_attributions ~env (scope : URI.t option)
     (primary_attributions : _ T.attribution list) =
   X.authors []
-  @@ List.map (render_attribution forest)
-  @@ Forest_util.collect_attributions forest scope primary_attributions
+  @@ List.map (render_attribution ~env)
+  @@ Forest_util.collect_attributions env.forest scope primary_attributions
 
-and render_attribution forest (attrib : _ T.attribution) =
+and render_attribution ~env (attrib : _ T.attribution) =
   let tag =
     match attrib.role with Author -> X.author | Contributor -> X.contributor
   in
-  tag [] @@ render_attribution_vertex forest attrib.vertex
+  tag [] @@ render_attribution_vertex ~env attrib.vertex
 
-and render_attribution_vertex (forest : State.t) vtx =
+and render_attribution_vertex ~env vtx =
   match vtx with
   | T.Uri_vertex href ->
     let content =
       T.Content
         [T.Transclude {href; target = Title {empty_when_untitled = false}}]
     in
-    render_link forest T.{href; content}
-  | T.Content_vertex content -> render_content forest content
+    render_link ~env T.{href; content}
+  | T.Content_vertex content -> render_content ~env content
 
-and render_dates forest dates = X.null @@ List.map (render_date forest) dates
+and render_dates ~env dates = X.null @@ List.map (render_date ~env) dates
 
-and render_date forest (date : Human_datetime.t) =
-  let config = forest.config in
+and render_date ~env (date : Human_datetime.t) =
+  let config = env.forest.config in
   let href_attr =
     let str =
       Format.asprintf "%a" Human_datetime.pp (Human_datetime.drop_time date)
     in
     let uri = URI_scheme.named_uri ~base:config.url str in
-    match State.get_article uri forest with
+    match State.get_article uri env.forest with
     | None -> X.null_
-    | Some _ -> X.href "%s" @@ URI.to_string @@ route forest uri
+    | Some _ -> X.href "%s" @@ URI.to_string @@ route env.forest uri
   in
   X.date [href_attr]
     [
@@ -359,10 +361,15 @@ let render_article (forest : State.t) (article : T.content T.article) : P.node =
     result
   in
   let config = forest.config in
-  let@ () = Loop_detection.run in
-  let@ () = Scope.run ~forest ~env:article.frontmatter.uri in
   let@ xmlnss = Xmlns.run in
-  let@ () = In_backmatter.run ~env:false in
+  let env =
+    {
+      forest;
+      in_backmatter = false;
+      uri = article.frontmatter.uri;
+      loops = Loop_detection.empty;
+    }
+  in
   X.tree
     begin
       List.map render_xmlns_prefix xmlnss
@@ -376,16 +383,21 @@ let render_article (forest : State.t) (article : T.content T.article) : P.node =
         ]
     end
     [
-      render_frontmatter forest article.frontmatter;
+      render_frontmatter ~env article.frontmatter;
       X.mainmatter []
       @@ begin
-        let@ () = Loop_detection.add_seen_uri_opt article.frontmatter.uri in
-        render_mainmatter forest @@ T.article_to_section article
+        render_mainmatter
+          ~env:
+            {
+              env with
+              loops =
+                Loop_detection.add_seen_uri_opt article.frontmatter.uri
+                  env.loops;
+            }
+        @@ T.article_to_section article
       end;
-      (X.backmatter []
-      @@
-      let@ () = In_backmatter.run ~env:true in
-      render_content forest article.backmatter);
+      X.backmatter []
+      @@ render_content ~env:{env with in_backmatter = true} article.backmatter;
     ]
 
 let pp_xml ~(forest : State.t) ?stylesheet fmt (article : _ T.article) =

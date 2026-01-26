@@ -17,9 +17,13 @@ open struct
 end
 
 module Xmlns = Xmlns_effect.Make ()
-module Loop_detection = Loop_detection_effect.Make ()
 
-type env = {forest: State.t; scope: URI.t option; section_depth: int}
+type env = {
+  forest: State.t;
+  scope: URI.t option;
+  section_depth: int;
+  loops: Loop_detection.t;
+}
 
 let hx ~env attrs children =
   P.std_tag (Format.sprintf "h%i" @@ min 6 env.section_depth) attrs children
@@ -120,25 +124,47 @@ and render_section ~env (section : T.content T.section) : P.node list =
         | Some title ->
           P.HTML.header [] [hx ~env [] @@ render_content ~env title]
         end;
-        (if Loop_detection.have_seen_uri_opt section.frontmatter.uri then
-           P.txt "Transclusion loop detected, rendering stopped."
-         else
-           let@ () = Loop_detection.add_seen_uri_opt section.frontmatter.uri in
-           P.HTML.null @@ render_content ~env section.mainmatter);
+        begin if
+          Loop_detection.have_seen_uri_opt section.frontmatter.uri env.loops
+        then P.txt "Transclusion loop detected, rendering stopped."
+        else
+          P.HTML.null
+          @@ render_content
+               ~env:
+                 {
+                   env with
+                   loops =
+                     Loop_detection.add_seen_uri_opt section.frontmatter.uri
+                       env.loops;
+                 }
+               section.mainmatter
+        end;
       ];
   ]
 
 let render_article_as_div ?(heading_level = 0) (forest : State.t)
     (article : T.content T.article) : P.node =
   let env =
-    {forest; section_depth = heading_level; scope = article.frontmatter.uri}
+    {
+      forest;
+      section_depth = heading_level;
+      scope = article.frontmatter.uri;
+      loops = Loop_detection.empty;
+    }
   in
-  let@ () = Loop_detection.run in
   let reserved = [{prefix = ""; xmlns = "http://www.w3.org/1999/xhtml"}] in
   let@ () = Xmlns.run ~reserved in
   P.HTML.div
     (List.map render_xmlns_prefix reserved)
     [
-      (let@ () = Loop_detection.add_seen_uri_opt article.frontmatter.uri in
-       P.HTML.null @@ render_content ~env article.mainmatter);
+      P.HTML.null
+      @@ render_content
+           ~env:
+             {
+               env with
+               loops =
+                 Loop_detection.add_seen_uri_opt article.frontmatter.uri
+                   env.loops;
+             }
+           article.mainmatter;
     ]
