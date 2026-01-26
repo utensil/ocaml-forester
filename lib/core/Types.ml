@@ -39,10 +39,13 @@ let default_section_flags =
     expanded = None;
   }
 
-type 'content xml_attr = {key: xml_qname; value: 'content}
+type 'content xml_attr = 'content Forester_xml_names.xml_attr = {
+  key: xml_qname;
+  value: 'content;
+}
 [@@deriving show, repr]
 
-type 'content xml_elt = {
+type 'content xml_elt = 'content Forester_xml_names.xml_elt = {
   name: xml_qname;
   attrs: 'content xml_attr list;
   content: 'content;

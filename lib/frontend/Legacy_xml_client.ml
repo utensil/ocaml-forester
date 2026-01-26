@@ -16,13 +16,6 @@ open struct
   module X = Xml_forester
 end
 
-module Xmlns = struct
-  include Xmlns_effect.Make ()
-
-  let run (k : xmlns_attr list -> 'a) =
-    run ~reserved:X.reserved_xmlnss @@ fun () -> k X.reserved_xmlnss
-end
-
 let local_path_components (config : Config.t) (uri : URI.t) =
   let host = Option.get @@ URI.host uri in
   let base_host = Option.get @@ URI.host config.url in
@@ -51,6 +44,7 @@ type env = {
   in_backmatter: bool;
   uri: URI.t option;
   loops: Loop_detection.t;
+  xmlns: Xmlns.t;
 }
 
 let range ~env =
@@ -62,7 +56,6 @@ let range ~env =
   Range.make (position, position)
 
 let render_xml_qname qname =
-  let qname = Xmlns.normalise_qname qname in
   match qname.prefix with
   | "" -> qname.uname
   | _ -> Format.sprintf "%s:%s" qname.prefix qname.uname
@@ -89,7 +82,6 @@ let render_section_flags (dict : T.section_flags) =
   ]
 
 let rec render_section ~env (section : T.content T.section) : P.node =
-  let@ _ = Xmlns.run in
   X.tree
     (render_section_flags section.flags)
     [
@@ -190,17 +182,16 @@ and render_content_node ~env (node : 'a T.content_node) : P.node list =
     [P.txt "%s" (URI.display_path_string ~base:env.forest.config.url uri)]
   | Route_of_uri uri -> [P.txt "%s" (URI.to_string (route env.forest uri))]
   | Xml_elt elt ->
-    let prefixes_to_add, (name, attrs, content) =
-      let@ () = Xmlns.within_scope in
-      ( render_xml_qname elt.name,
-        List.map (render_xml_attr ~env) elt.attrs,
-        render_content ~env elt.content )
-    in
-    let attrs =
-      let xmlns_attrs = List.map render_xmlns_prefix prefixes_to_add in
-      attrs @ xmlns_attrs
-    in
-    [P.std_tag name attrs content]
+    let xmlns_attrs = Xmlns.xmlns_attrs_for_elt elt env.xmlns in
+    let env = {env with xmlns = Xmlns.extend xmlns_attrs env.xmlns} in
+    let content = render_content ~env elt.content in
+    [
+      P.std_tag
+        (render_xml_qname elt.name)
+        (List.map render_xmlns_prefix xmlns_attrs
+        @ List.map (render_xml_attr ~env) elt.attrs)
+        content;
+    ]
   | Transclude transclusion -> render_transclusion ~env transclusion
   | Contextual_number uri ->
     let custom_number =
@@ -361,18 +352,18 @@ let render_article (forest : State.t) (article : T.content T.article) : P.node =
     result
   in
   let config = forest.config in
-  let@ xmlnss = Xmlns.run in
   let env =
     {
       forest;
       in_backmatter = false;
       uri = article.frontmatter.uri;
       loops = Loop_detection.empty;
+      xmlns = Xmlns.init ~reserved:X.reserved_xmlnss;
     }
   in
   X.tree
     begin
-      List.map render_xmlns_prefix xmlnss
+      List.map render_xmlns_prefix X.reserved_xmlnss
       @ [
           X.optional_ X.root
           @@ begin

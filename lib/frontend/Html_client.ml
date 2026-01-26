@@ -16,13 +16,12 @@ open struct
   module X = Xml_forester
 end
 
-module Xmlns = Xmlns_effect.Make ()
-
 type env = {
   forest: State.t;
   scope: URI.t option;
   section_depth: int;
   loops: Loop_detection.t;
+  xmlns: Xmlns.t;
 }
 
 let hx ~env attrs children =
@@ -36,13 +35,14 @@ let get_expanded_title ~env frontmatter forest =
     frontmatter forest
 
 let render_xml_qname qname =
-  let qname = Xmlns.normalise_qname qname in
   match qname.prefix with
   | "" -> qname.uname
   | _ -> Format.sprintf "%s:%s" qname.prefix qname.uname
 
-let render_xml_attr (forest : State.t) T.{key; value} =
-  let str_value = Plain_text_client.string_of_content ~forest value in
+let render_xml_attr ~env T.{key; value} =
+  let str_value =
+    Plain_text_client.string_of_content ~forest:env.forest value
+  in
   P.string_attr (render_xml_qname key) "%s" str_value
 
 let render_xmlns_prefix ({prefix; xmlns} : Forester_xml_names.xmlns_attr) =
@@ -66,17 +66,16 @@ and render_content_node ~env (node : 'a T.content_node) : P.node list =
   | CDATA str -> [P.txt ~raw:true "<![CDATA[%s]]>" str]
   | Uri uri -> [P.txt "%s" (URI.to_string uri)]
   | Xml_elt elt ->
-    let prefixes_to_add, (name, attrs, content) =
-      let@ () = Xmlns.within_scope in
-      ( render_xml_qname elt.name,
-        List.map (render_xml_attr env.forest) elt.attrs,
-        render_content ~env elt.content )
-    in
-    let attrs =
-      let xmlns_attrs = List.map render_xmlns_prefix prefixes_to_add in
-      attrs @ xmlns_attrs
-    in
-    [P.std_tag name attrs content]
+    let name = render_xml_qname elt.name in
+    let xmlns_attrs = Xmlns.xmlns_attrs_for_elt elt env.xmlns in
+    let env = {env with xmlns = Xmlns.extend xmlns_attrs env.xmlns} in
+    let content = render_content ~env elt.content in
+    [
+      P.std_tag name
+        (List.map render_xmlns_prefix xmlns_attrs
+        @ List.map (render_xml_attr ~env) elt.attrs)
+        content;
+    ]
   | Route_of_uri uri -> [P.txt "%s" (route uri)]
   | Contextual_number uri ->
     let custom_number =
@@ -144,16 +143,16 @@ and render_section ~env (section : T.content T.section) : P.node list =
 
 let render_article_as_div ?(heading_level = 0) (forest : State.t)
     (article : T.content T.article) : P.node =
+  let reserved = [{prefix = ""; xmlns = "http://www.w3.org/1999/xhtml"}] in
   let env =
     {
       forest;
       section_depth = heading_level;
       scope = article.frontmatter.uri;
       loops = Loop_detection.empty;
+      xmlns = Xmlns.init ~reserved;
     }
   in
-  let reserved = [{prefix = ""; xmlns = "http://www.w3.org/1999/xhtml"}] in
-  let@ () = Xmlns.run ~reserved in
   P.HTML.div
     (List.map render_xmlns_prefix reserved)
     [

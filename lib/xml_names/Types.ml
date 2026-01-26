@@ -9,6 +9,16 @@ type xmlns_attr = {prefix: string; xmlns: string}
 type xml_qname = {prefix: string; uname: string; xmlns: string option}
 [@@deriving show, repr]
 
+type 'content xml_attr = {key: xml_qname; value: 'content}
+[@@deriving show, repr]
+
+type 'content xml_elt = {
+  name: xml_qname;
+  attrs: 'content xml_attr list;
+  content: 'content;
+}
+[@@deriving show, repr]
+
 let split_xml_qname str =
   match String.split_on_char ':' str with
   | [prefix; uname] -> (Some prefix, uname)
