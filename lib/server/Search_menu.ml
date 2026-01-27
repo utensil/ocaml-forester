@@ -57,7 +57,7 @@ let v =
   in
   Pure_html.to_string markup
 
-let results (forest : State.t) (links : URI.t list) =
+let results ~( env: Html_client.env) (links : URI.t list) =
   Pure_html.to_string
   @@ ul
        [id "search-results"]
@@ -66,7 +66,7 @@ let results (forest : State.t) (links : URI.t list) =
             let title =
               State.get_content_of_transclusion
                 {href = uri; target = Title {empty_when_untitled = false}}
-                forest
+                env.forest
             in
             Option.map
               (fun t ->
@@ -77,6 +77,6 @@ let results (forest : State.t) (links : URI.t list) =
                     Hx.target "#tree-container";
                     Hx.swap "outerHTML";
                   ]
-                @@ Htmx_client.render_content forest t)
+                @@ Htmx_client.render_content ~env t)
               title)
           links)

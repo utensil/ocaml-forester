@@ -76,7 +76,7 @@ let render_updated_date dates =
 let render_dates dates = try render_dates_exn dates with _ -> A.null []
 let string_of_content forest = Plain_text_client.string_of_content ~forest
 
-let render_attribution forest (attribution : _ T.attribution) =
+let render_attribution ~forest (attribution : _ T.attribution) =
   let tag =
     match attribution.role with
     | T.Author -> A.author
@@ -100,7 +100,7 @@ let render_attribution forest (attribution : _ T.attribution) =
 
 let render_attributions (forest : State.t) uri_opt attributions : P.node =
   A.null
-  @@ List.map (render_attribution forest)
+  @@ List.map (render_attribution ~forest)
   @@ Forest_util.collect_attributions forest uri_opt attributions
 
 let get_embedded_articles (forest : State.t) (article : _ T.article) =
@@ -142,7 +142,7 @@ let render_entry ~(forest : State.t) ?(scope : URI.t option)
       end;
       A.content
         [A.type_ "xhtml"]
-        [Html_client.render_article_as_div ~heading_level:1 forest article];
+        [Html_client.render_article_as_div ~heading_level:1 ~forest article];
     ]
 
 let render_feed (forest : State.t) ~(source_uri : URI.t) ~(feed_uri : URI.t) :

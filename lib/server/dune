@@ -16,6 +16,7 @@
   forester.compiler
   forester.frontend
   forester.search
+  forester.xml_names
   pure-html
   logs
   eio

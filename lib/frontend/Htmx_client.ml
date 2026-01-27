@@ -5,12 +5,15 @@
  *)
 
 open Forester_prelude
-open Forester_xml_names
 open Forester_core
 open Forester_compiler
+open Forester_xml_names
 
 open struct
   module T = Types
+  module P = Pure_html
+  let render_date = Html_client.render_date
+  let render_attributions = Html_client.render_attributions
 end
 
 open Pure_html
@@ -20,8 +23,6 @@ type query = {
   query: (string, T.content T.vertex) Forester_core.Datalog_expr.query;
 }
 [@@deriving repr]
-
-module Xmlns = Xmlns_effect.Make ()
 
 let local_path_components (uri : URI.t) =
   let host =
@@ -95,44 +96,6 @@ let render_xmlns_prefix ({prefix; xmlns} : xmlns_attr) =
   let attr = match prefix with "" -> "xmlns" | _ -> "xmlns:" ^ prefix in
   string_attr attr "%s" xmlns
 
-let render_date (date : Human_datetime.t) =
-  let year = txt "%i" (Human_datetime.year date) in
-  let month =
-    match Human_datetime.month date with
-    | None -> None
-    | Some i -> (
-      match i with
-      | 1 -> Some (txt "January")
-      | 2 -> Some (txt "February")
-      | 3 -> Some (txt "March")
-      | 4 -> Some (txt "April")
-      | 5 -> Some (txt "May")
-      | 6 -> Some (txt "June")
-      | 7 -> Some (txt "July")
-      | 8 -> Some (txt "August")
-      | 9 -> Some (txt "September")
-      | 10 -> Some (txt "October")
-      | 11 -> Some (txt "November")
-      | 12 -> Some (txt "December")
-      | _ -> assert false)
-  in
-  let day =
-    match Human_datetime.day date with None -> null [] | Some i -> txt "%i" i
-  in
-  li
-    [class_ "meta-item"]
-    [
-      a
-        [class_ "link local"]
-        [
-          Option.value ~default:(null []) month;
-          (if Option.is_some month then txt " " else null []);
-          day;
-          (if Option.is_some month then txt ", " else null []);
-          year;
-        ];
-    ]
-
 (*This type is just temporary until I figure out the logic *)
 type toc_config = {
   suffix: string;
@@ -158,10 +121,20 @@ let default_toc_config ?(suffix = "") ?(taxon = "") ?(number = "")
     implicitly_unnumbered = false;
   }
 
-let rec render_article (forest : State.t) (article : T.content T.article) : node
+let rec render_article ~(forest : State.t) (article : T.content T.article) : node
     =
   (* FIXME: What should reserved be here? *)
-  let@ () = Xmlns.run ~reserved:[] in
+
+  let reserved = [{prefix = ""; xmlns = "http://www.w3.org/1999/xhtml"}] in
+  let env : Html_client.env =
+    {
+      forest;
+      section_depth = 0;
+      scope = article.frontmatter.uri;
+      loops = Loop_detection.empty;
+      xmlns = Xmlns.init ~reserved;
+    }
+  in
   HTML.article
     [id "tree-container"]
     [
@@ -170,17 +143,17 @@ let rec render_article (forest : State.t) (article : T.content T.article) : node
         [class_ "block"]
         [
           details [(* TODO: check if expanded*) open_]
-          @@ summary [] [render_frontmatter forest article.frontmatter]
-             :: render_content forest article.mainmatter;
+          @@ summary [] [render_frontmatter ~env article.frontmatter]
+             :: render_content ~env article.mainmatter;
         ];
       (match article.frontmatter.uri with
-      | None -> footer [] @@ render_backmatter forest article.backmatter
+      | None -> footer [] @@ render_backmatter ~env article.backmatter
       | Some uri ->
-        if URI.equal (Config.home_uri forest.config) uri then null []
-        else footer [] @@ render_backmatter forest article.backmatter);
+        if URI.equal (Config.home_uri env.forest.config) uri then null []
+        else footer [] @@ render_backmatter ~env article.backmatter);
     ]
 
-and render_section (forest : State.t) (section : T.content T.section) : node =
+and render_section ~env (section : T.content T.section) : node =
   match section with
   | {frontmatter; mainmatter; flags} ->
     let test k = function
@@ -205,63 +178,33 @@ and render_section (forest : State.t) (section : T.content T.section) : node =
            details
              [(if test true flags.expanded then open_ else null_)]
              [
-               summary [] [render_frontmatter forest frontmatter];
-               null @@ render_content forest mainmatter;
+               summary [] [render_frontmatter ~env frontmatter];
+               null @@ render_content ~env mainmatter;
              ]
-         else null @@ render_content forest mainmatter);
+         else null @@ render_content ~env mainmatter);
         (* render_frontmatter forest frontmatter; *)
         (* null @@ render_content forest mainmatter; *)
       ]
 
 (* Same as render_section, but adds the backmatter-section class *)
-and render_backmatter (forest : State.t) backmatter =
-  let@ node = List.map @~ render_content forest backmatter in
+and render_backmatter ~env backmatter =
+  let@ node = List.map @~ render_content ~env backmatter in
   let attrs = Format.asprintf "%s backmatter-section" node.@["class"] in
   node +@ class_ "%s" attrs
 
-and render_attributions forest (attributions : T.content T.attribution list) =
-  let render_attribution attribution =
-    match attribution with
-    | T.{vertex; _} -> (
-      match vertex with
-      | T.Uri_vertex href ->
-        let content =
-          T.Content
-            [T.Transclude {href; target = Title {empty_when_untitled = false}}]
-        in
-        null @@ render_link forest T.{href; content}
-      | T.Content_vertex content -> null @@ render_content forest content)
-  in
-  let authors, contributors =
-    attributions
-    |> List.partition_map @@ fun a ->
-       match T.(a.role) with T.Author -> Left a | Contributor -> Right a
-  in
-  li
-    [class_ "meta-item"]
-    [
-      address [class_ "author"]
-      @@ List.map render_attribution authors
-      @ begin if List.length contributors > 0 then
-        [txt "with contributions from "]
-      else []
-      end
-      @ List.map render_attribution contributors;
-    ]
-
-and render_frontmatter (forest : State.t)
+and render_frontmatter ~env
     (frontmatter : T.content T.frontmatter) : node =
   let taxon =
     Option.value ~default:[]
     @@
     let@ c = Option.map @~ frontmatter.taxon in
-    render_content forest c @ [txt ". "]
+    render_content ~env c @ [txt ". "]
   in
   let title =
     Option.value ~default:[]
     @@
     let@ c = Option.map @~ frontmatter.title in
-    render_content forest c
+    render_content ~env c
   in
   let uri =
     match frontmatter.uri with
@@ -269,7 +212,7 @@ and render_frontmatter (forest : State.t)
     | Some uri ->
       let uri_str =
         (* TODO: replace with proper routing from legacy xml client *)
-        Format.asprintf "%a" URI.pp (route forest uri)
+        Format.asprintf "%a" URI.pp (route env.forest uri)
       in
       a [class_ "slug"; href "%s" uri_str] [txt "[%s]" uri_str]
   in
@@ -287,14 +230,14 @@ and render_frontmatter (forest : State.t)
     Option.value ~default:(null []) (Option.map f (find_meta key))
   in
   let default_meta_item content =
-    li [class_ "meta-item"] (render_content forest content)
+    li [class_ "meta-item"] (render_content ~env content)
   in
   let labelled_external_link ~href ~label =
     li [class_ "meta-item"] [a [class_ "link external"; href] [txt "%s" label]]
   in
   let to_string =
-    Plain_text_client.string_of_content ~forest
-      ~router:(Legacy_xml_client.route forest)
+    Plain_text_client.string_of_content ~forest:env.forest
+      ~router:(Legacy_xml_client.route env.forest)
   in
   let position = render_meta "position" default_meta_item in
   let institution = render_meta "institution" default_meta_item in
@@ -340,7 +283,7 @@ and render_frontmatter (forest : State.t)
           ul []
           @@ List.map render_date frontmatter.dates
           @ [
-              render_attributions forest frontmatter.attributions;
+              render_attributions ~env frontmatter.attributions;
               position;
               institution;
               venue;
@@ -372,30 +315,29 @@ and render_transclusion transclusion =
         [txt "transclusion: %s" (Format.asprintf "%a" URI.pp href)];
     ]
 
-and render_content (forest : State.t) (Content content : T.content) : node list
+and render_content ~env (Content content : T.content) : node list
     =
-  List.concat_map (render_content_node forest) content
+  List.concat_map (render_content_node ~env) content
 
-and render_content_node (forest : State.t) (node : 'a T.content_node) :
+and render_content_node ~env (node : 'a T.content_node) :
     node list =
   match node with
   | Text str -> [txt "%s" str]
   | CDATA str -> [txt ~raw:true "<![CDATA[%s]]>" str]
   | Xml_elt elt ->
-    let prefixes_to_add, (name, attrs, content) =
-      let@ () = Xmlns.within_scope in
-      ( render_xml_qname elt.name,
-        List.map render_xml_attr elt.attrs,
-        render_content forest elt.content )
-    in
-    let attrs =
-      let xmlns_attrs = List.map render_xmlns_prefix prefixes_to_add in
-      attrs @ xmlns_attrs
-    in
-    [std_tag name attrs content]
+    let name = render_xml_qname elt.name in
+    let xmlns_attrs = Xmlns.xmlns_attrs_for_elt elt env.xmlns in
+    let env = {env with xmlns = Xmlns.extend xmlns_attrs env.xmlns} in
+    let content = render_content ~env elt.content in
+    [
+      P.std_tag name
+        (List.map render_xmlns_prefix xmlns_attrs
+        @ List.map render_xml_attr elt.attrs)
+        content;
+    ]
   | Transclude transclusion -> render_transclusion transclusion
   | Contextual_number addr -> begin
-    match (State.get_article addr) forest with
+    match (State.get_article addr) env.forest with
     | Some a ->
       [contextual_number (T.article_to_section a) (default_toc_config ())]
     | None -> []
@@ -409,10 +351,10 @@ and render_content_node (forest : State.t) (node : 'a T.content_node) :
   (*   | Some num -> num *)
   (* in *)
   (* [txt "%s" num] *)
-  | Link link -> render_link forest link
-  | Section section -> [render_section forest section]
+  | Link link -> render_link ~env link
+  | Section section -> [render_section ~env section]
   | KaTeX (mode, content) ->
-    let body = Plain_text_client.string_of_content ~forest content in
+    let body = Plain_text_client.string_of_content ~forest:env.forest content in
     (* [txt ~raw: true "%s%s%s" l body r] *)
     begin match mode with
     | Inline -> [span [class_ "math"] [txt ~raw:true "%s" body]]
@@ -435,9 +377,9 @@ and render_content_node (forest : State.t) (node : 'a T.content_node) :
   | T.Artefact _ | T.Uri _ | T.Route_of_uri _ -> [txt "todo"]
 
 (* TODO: links need to be flattened in order to produce valid HTML. *)
-and render_link (forest : State.t) (link : T.content T.link) : node list =
+and render_link ~env (link : T.content T.link) : node list =
   let attrs =
-    match State.get_article link.href forest with
+    match State.get_article link.href env.forest with
     | None ->
       (* TODO: rendering of hrefs is suboptimal... *)
       [href "%s" (Format.asprintf "%a" URI.pp link.href)]
@@ -447,8 +389,8 @@ and render_link (forest : State.t) (link : T.content T.link) : node list =
         [
           title_ "%s" @@ Option.value ~default:""
           @@ Option.map
-               (Plain_text_client.string_of_content ~forest
-                  ~router:(Legacy_xml_client.route forest))
+               (Plain_text_client.string_of_content ~forest:env.forest
+                  ~router:(Legacy_xml_client.route env.forest))
                article.frontmatter.title;
           href "/trees%s" (Format.asprintf "%s" (URI.path_string link.href));
           Hx.target "#tree-container";
@@ -457,7 +399,7 @@ and render_link (forest : State.t) (link : T.content T.link) : node list =
       | None -> [HTML.null_]
     end
   in
-  [span [class_ "link local"] [a attrs (render_content forest link.content)]]
+  [span [class_ "link local"] [a attrs (render_content ~env link.content)]]
 
 and contextual_number (_tree : T.content T.section) (cfg : toc_config) =
   let should_number =
@@ -496,10 +438,10 @@ and _tree_taxon_with_number (_tree : T.content T.section) cfg =
   (*TODO: Implement.*)
   contextual_number _tree cfg
 
-and _render_toc_item (forest : State.t) (item : T.content T.section) =
+and _render_toc_item ~(env: Html_client.env) (item : T.content T.section) =
   let to_str =
-    Plain_text_client.string_of_content ~forest
-      ~router:(Legacy_xml_client.route forest)
+    Plain_text_client.string_of_content ~forest:env.forest
+      ~router:(Legacy_xml_client.route env.forest)
   in
   null
     [
@@ -522,7 +464,7 @@ and _render_toc_item (forest : State.t) (item : T.content T.section) =
             [_tree_taxon_with_number item (default_toc_config ())];
           (* null @@ render_content forest item.mainmatter; *)
         ];
-      ul [] (render_content forest item.mainmatter);
+      ul [] (render_content ~env item.mainmatter);
     ]
 
 and render_toc_mainmatter content =
@@ -552,11 +494,20 @@ and render_toc (section : T.content T.section) =
           ];
       ]
 
-let render_query_result (forest : State.t) (vs : Vertex_set.t) =
+let render_query_result ~forest (vs : Vertex_set.t) =
   let module C = Types.Comparators (struct
     let string_of_content =
       Plain_text_client.string_of_content ~forest ~router:(route forest)
   end) in
+  let env : Html_client.env =
+    {
+      forest;
+      section_depth =  0;
+      scope = None;
+      loops = Loop_detection.empty;
+      xmlns = Xmlns.init ~reserved: [{prefix = ""; xmlns = "http://www.w3.org/1999/xhtml"}];
+    }
+  in
   let make_section =
     T.article_to_section
       ~flags:
@@ -574,7 +525,7 @@ let render_query_result (forest : State.t) (vs : Vertex_set.t) =
     |> Seq.filter_map (State.get_article @~ forest)
     |> List.of_seq
     |> List.sort C.compare_article
-    |> List.map (Fun.compose (render_section forest) make_section)
+    |> List.map (Fun.compose (render_section ~env) make_section)
   in
   if List.length nodes = 0 then None
   else Some (div [class_ "tree-content"] nodes)

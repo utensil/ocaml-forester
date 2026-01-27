@@ -14,6 +14,7 @@ open struct
   module T = Types
   module P = Pure_html
   module X = Xml_forester
+  module H = P.HTML
 end
 
 type env = {
@@ -27,12 +28,62 @@ type env = {
 let hx ~env attrs children =
   P.std_tag (Format.sprintf "h%i" @@ min 6 env.section_depth) attrs children
 
+let optional opt kont = match opt with None -> H.null [] | Some v -> kont v
+
+(* test if the Home navbar be rendered*)
+let is_root config uri =
+  match uri with
+  | None -> false
+  | Some uri -> URI.equal (Config.home_uri config) uri
+
+let should_render_toc _article = false
+
 let route uri = URI.to_string uri
 
-let get_expanded_title ~env frontmatter forest =
+let _get_expanded_title ~env frontmatter forest =
   State.get_expanded_title ?scope:env.scope
     ~flags:T.{empty_when_untitled = true}
     frontmatter forest
+
+let render_date (date : Human_datetime.t) =
+  let year = P.txt "%i" (Human_datetime.year date) in
+  let month =
+    match Human_datetime.month date with
+    | None -> None
+    | Some i -> (
+      match i with
+      | 1 -> Some (P.txt "January")
+      | 2 -> Some (P.txt "February")
+      | 3 -> Some (P.txt "March")
+      | 4 -> Some (P.txt "April")
+      | 5 -> Some (P.txt "May")
+      | 6 -> Some (P.txt "June")
+      | 7 -> Some (P.txt "July")
+      | 8 -> Some (P.txt "August")
+      | 9 -> Some (P.txt "September")
+      | 10 -> Some (P.txt "October")
+      | 11 -> Some (P.txt "November")
+      | 12 -> Some (P.txt "December")
+      | _ -> assert false)
+  in
+  let day =
+    match Human_datetime.day date with
+    | None -> H.null []
+    | Some i -> P.txt "%i" i
+  in
+  H.li
+    [H.class_ "meta-item"]
+    [
+      H.a
+        [H.class_ "link local"]
+        [
+          Option.value ~default:(H.null []) month;
+          (if Option.is_some month then P.txt " " else H.null []);
+          day;
+          (if Option.is_some month then P.txt ", " else H.null []);
+          year;
+        ];
+    ]
 
 let render_xml_qname qname =
   match qname.prefix with
@@ -96,12 +147,12 @@ and render_content_node ~env (node : 'a T.content_node) : P.node list =
   | Results_of_datalog_query _ -> [] (* TODO: just make a list of links *)
   | Datalog_script _ -> []
 
-and render_link (forest : State.t) (link : T.content T.link) : P.node list = [
+and render_link ~env (link : T.content T.link) : P.node list = [
   P.HTML.a
     [
       P.HTML.href "%s" (URI.path_string link.href)
     ] @@
-    render_content forest link.content
+    render_content ~env link.content
 ]
 
 and render_transclusion ~env (transclusion : T.transclusion) : P.node list =
@@ -109,7 +160,7 @@ and render_transclusion ~env (transclusion : T.transclusion) : P.node list =
   | None -> Reporter.fatal (Resource_not_found transclusion.href)
   | Some content -> render_content ~env content
 
-and render_section ~env (section : T.content T.section) : P.node list =
+and _render_section_for_atom_client ~env (section : T.content T.section) : P.node list =
   let env =
     {
       env with
@@ -118,18 +169,18 @@ and render_section ~env (section : T.content T.section) : P.node list =
     }
   in
   [
-    P.HTML.section []
+    H.section []
       [
         begin match section.frontmatter.title with
-        | None -> P.HTML.null []
+        | None -> H.null []
         | Some title ->
-          P.HTML.header [] [hx ~env [] @@ render_content ~env title]
+          H.header [] [hx ~env [] @@ render_content ~env title]
         end;
         begin if
           Loop_detection.have_seen_uri_opt section.frontmatter.uri env.loops
         then P.txt "Transclusion loop detected, rendering stopped."
         else
-          P.HTML.null
+          H.null
           @@ render_content
                ~env:
                  {
@@ -143,7 +194,76 @@ and render_section ~env (section : T.content T.section) : P.node list =
       ];
   ]
 
-let render_article_as_div ?(heading_level = 0) (forest : State.t)
+and render_section ~env (section : T.content T.section) : P.node list =
+  [
+    H.section []
+      [
+        begin match section.frontmatter.title with
+        | None -> P.HTML.null []
+        | Some title ->
+          H.header [] [hx ~env [] @@ render_content ~env title]
+        end;
+        begin if
+          Loop_detection.have_seen_uri_opt section.frontmatter.uri env.loops
+        then P.txt "Transclusion loop detected, rendering stopped."
+        else
+          H.null
+          @@ render_content
+               ~env:
+                 {
+                   env with
+                   loops =
+                     Loop_detection.add_seen_uri_opt section.frontmatter.uri
+                       env.loops;
+                 }
+               section.mainmatter
+        end;
+      ];
+  ]
+
+let render_attributions ~env (attributions : T.content T.attribution list) =
+  let render_attribution attribution =
+    match attribution with
+    | T.{vertex; _} -> (
+      match vertex with
+      | T.Uri_vertex href ->
+        let content =
+          T.Content
+            [T.Transclude {href; target = Title {empty_when_untitled = false}}]
+        in
+        H.null @@ render_link ~env T.{href; content}
+      | T.Content_vertex content -> H.null @@ render_content ~env content)
+  in
+  let authors, contributors =
+    attributions
+    |> List.partition_map @@ fun a ->
+       match T.(a.role) with T.Author -> Left a | Contributor -> Right a
+  in
+  H.li
+    [H.class_ "meta-item"]
+    [
+      H.address [H.class_ "author"]
+      @@ List.map render_attribution authors
+      @ begin if List.length contributors > 0 then
+        [P.txt "with contributions from "]
+      else []
+      end
+      @ List.map render_attribution contributors;
+    ]
+
+let render_article ~env (article : T.content T.article) : P.node
+    =
+  (* let@ () = Scope.run ~env:article.frontmatter.uri in *)
+  H.article []
+    [
+      H.section []
+(render_content ~env:{env with loops = Loop_detection.add_seen_uri_opt article.frontmatter.uri env.loops} article.mainmatter);
+    ]
+
+let render_toc _article = H.ul [] []
+
+(* Just used by the atom client *)
+let render_article_as_div ?(heading_level = 0) ~(forest : State.t)
     (article : T.content T.article) : P.node =
   let reserved = [{prefix = ""; xmlns = "http://www.w3.org/1999/xhtml"}] in
   let env =
@@ -155,56 +275,165 @@ let render_article_as_div ?(heading_level = 0) (forest : State.t)
       xmlns = Xmlns.init ~reserved;
     }
   in
-  P.HTML.div
+  H.div
     (List.map render_xmlns_prefix reserved)
+    [H.null @@ render_content ~env article.mainmatter]
+
+let get_meta (frontmatter : T.content T.frontmatter) meta =
+  List.find_map
+    (fun (m, v) -> if m = meta then Some v else None)
+    frontmatter.metas
+
+let default_meta_item ~env frontmatter meta =
+  optional (get_meta frontmatter meta) (fun content ->
+      H.li [H.class_ "meta-item"] (render_content ~env content))
+
+let render_position ~env frontmatter =
+  default_meta_item ~env frontmatter "position"
+
+let render_institution ~env frontmatter =
+  default_meta_item ~env frontmatter "institution"
+
+let render_venue ~env frontmatter =
+  default_meta_item ~env frontmatter "venue"
+
+let render_source ~env frontmatter =
+  default_meta_item ~env frontmatter "source"
+
+let render_doi ~env frontmatter =
+  optional (get_meta frontmatter "doi") (fun c ->
+      let doi = Plain_text_client.string_of_content ~forest:env.forest c in
+      H.li
+        [H.class_ "meta-item"]
+        [
+          H.a
+            [H.class_ "doi"; H.href "https://www.doi.org/%s" doi]
+            (render_content ~env c);
+        ])
+
+let render_orcid ~env frontmatter =
+  optional (get_meta frontmatter "orcid") (fun c ->
+      let orcid = Plain_text_client.string_of_content ~forest:env.forest c in
+      H.li
+        [H.class_ "meta-item"]
+        [
+          H.a
+            [H.class_ "orcid"; H.href "https://orcid.org/%s" orcid]
+            (render_content ~env c);
+        ])
+
+let render_external ~env frontmatter =
+  optional (get_meta frontmatter "external") (fun c ->
+    let link = Plain_text_client.string_of_content ~forest:env.forest c in
+      H.li
+        [H.class_ "meta-item"]
+        [
+          H.a
+            [H.class_ "link external"; H.href "%s" link]
+            (render_content ~env c);
+        ])
+
+let render_slides ~env frontmatter =
+  optional (get_meta frontmatter "slides") (fun c ->
+      let link = Plain_text_client.string_of_content ~forest:env.forest c in
+      H.li
+        [H.class_ "meta-item"]
+        [H.a [H.class_ "link external"; H.href "%s" link] [P.txt "Slides"]])
+
+let render_video ~env frontmatter =
+  optional (get_meta frontmatter "video") (fun c ->
+      let link = Plain_text_client.string_of_content ~forest:env.forest c in
+      H.li
+        [H.class_ "meta-item"]
+        [H.a [H.class_ "link external"; H.href "%s" link] [P.txt "Video"]])
+
+let render_frontmatter ~env (frontmatter : _ T.frontmatter) :
+    P.node =
+  H.header []
     [
-      P.HTML.null
-      @@ render_content
-           ~env:
-             {
-               env with
-               loops =
-                 Loop_detection.add_seen_uri_opt article.frontmatter.uri
-                   env.loops;
-             }
-           article.mainmatter;
+      H.h1 [] [H.span [H.class_ "taxon"] []];
+      H.div
+        [H.class_ "metadata"]
+        [
+          H.ul []
+            [
+              render_position ~env frontmatter;
+              render_institution ~env frontmatter;
+              render_venue ~env frontmatter;
+              render_source ~env frontmatter;
+              render_doi ~env frontmatter;
+              render_orcid ~env frontmatter;
+              render_external ~env frontmatter;
+              render_slides ~env frontmatter;
+              render_video ~env frontmatter;
+            ];
+        ];
     ]
 
-let render_page (forest : State.t) (tree : _ T.article) : P.node =
-  let@ () = Scope.run ~env: tree.frontmatter.uri in
+let render_page ~forest (tree : _ T.article) : P.node =
+  let reserved = [{prefix = ""; xmlns = "http://www.w3.org/1999/xhtml"}] in
+  let env =
+    {
+      forest;
+      section_depth =  0;
+      scope = tree.frontmatter.uri;
+      loops = Loop_detection.empty;
+      xmlns = Xmlns.init ~reserved;
+    }
+  in
   let ttl =
     match tree.frontmatter.title with
-    | None -> P.HTML.null []
+    | None -> H.null []
     | Some _ ->
-      let title = State.get_expanded_title ?scope: (Scope.read ()) tree.frontmatter forest in
-      P.HTML.title [] "%s" @@ Plain_text_client.string_of_content ~forest title
+      let title =
+        State.get_expanded_title ?scope:env.scope tree.frontmatter env.forest
+      in
+      H.title [] "%s" @@ Plain_text_client.string_of_content ~forest:env.forest title
   in
-  let open P.HTML in
-  html
-    []
+  let open H in
+  html []
     [
-      head
-        []
+      head []
         [
           meta [http_equiv `content_type; content "text/html"; charset "UTF-8"];
           meta
-            [
-              name "viewport";
-              content "width=device-width, initial-scale=1.0"
-            ];
-          link
-            [
-              rel "stylesheet";
-              href "/style.css"
-            ];
+            [name "viewport"; content "width=device-width, initial-scale=1.0"];
+          link [rel "stylesheet"; href "/style.css"];
           link [rel "stylesheet"; href "/katex.min.css"];
           script [type_ "module"; src "/forester.js"] "";
           ttl;
         ];
-      body
-        []
+      body []
         [
-          P.std_tag "ninja-keys" [placeholder "Start typing a note title or ID"][]; 
-          render_article_as_div forest tree
-        ]
+          P.std_tag "ninja-keys"
+            [placeholder "Start typing a note title or ID"]
+            [];
+          (if is_root env.forest.config tree.frontmatter.uri then null []
+           else
+             header
+               [class_ "header"]
+               [
+                 nav
+                   [class_ "nav"]
+                   [
+                     div
+                       [class_ "logo"]
+                       [a [href "index.html"; title_ "home"] [P.txt "« Home"]];
+                   ];
+               ]);
+          div
+            [id "grid-wrapper"]
+            [
+              render_article ~env tree;
+              (if should_render_toc article then
+                 nav
+                   [id "toc"]
+                   [
+                     div
+                       [class_ "block"]
+                       [h1 [] [P.txt "Table of Contents"]; render_toc article];
+                   ]
+               else null []);
+            ];
+        ];
     ]

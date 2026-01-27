@@ -8,6 +8,7 @@ open Forester_prelude
 open Forester_core
 open Forester_compiler
 open Forester_frontend
+open Forester_xml_names
 
 open struct
   module T = Types
@@ -107,7 +108,7 @@ let handler :
             Cohttp_eio.Server.respond_string ~status:`Not_found ~body:"" ()
           | Some content ->
             let response =
-              Pure_html.to_string @@ Htmx_client.render_article forest content
+              Pure_html.to_string @@ Htmx_client.render_article ~forest content
             in
             Cohttp_eio.Server.respond_string ~status:`OK ~body:response ()
         end
@@ -117,10 +118,19 @@ let handler :
             Cohttp_eio.Server.respond_string ~status:`Not_found ~body:"" ()
           | Some content ->
             (* TODO: Remove any sort of HTML generation from the handler. *)
+  let env : Html_client.env =
+    {
+      forest;
+      section_depth =  0;
+      scope = Some href;
+      loops = Loop_detection.empty;
+      xmlns = Xmlns.init ~reserved: [{prefix = ""; xmlns = "http://www.w3.org/1999/xhtml"}];
+    }
+  in
             let response =
               Pure_html.(
                 to_string
-                @@ HTML.span [] (Htmx_client.render_content forest content))
+                @@ HTML.span [] (Htmx_client.render_content ~env content))
             in
             Cohttp_eio.Server.respond_string ~status:`OK ~body:response ())
       end
@@ -129,7 +139,7 @@ let handler :
         | Some article ->
           let content =
             Pure_html.to_string
-            @@ Index.v ~c:(Htmx_client.render_article forest article) ()
+            @@ Index.v ~c:(Htmx_client.render_article ~forest article) ()
           in
           let headers = Http.Header.of_list [("Content-Type", "text/html")] in
           Cohttp_eio.Server.respond_string ~headers ~status:`OK ~body:content ()
@@ -162,7 +172,17 @@ let handler :
           | Some _ -> assert false
         in
         let response =
-          Search_menu.results forest (List.map snd search_results)
+
+  let env : Html_client.env =
+    {
+      forest;
+      section_depth =  0;
+              scope = None;
+      loops = Loop_detection.empty;
+      xmlns = Xmlns.init ~reserved: [{prefix = ""; xmlns = "http://www.w3.org/1999/xhtml"}];
+    }
+  in
+          Search_menu.results ~env (List.map snd search_results)
         in
         Cohttp_eio.Server.respond_string ~status:`OK ~body:response ()
       else
@@ -176,7 +196,7 @@ let handler :
       | None -> Cohttp_eio.Server.respond_string ~status:`OK ~body:"" ()
       | Some home_tree ->
         let content =
-          Pure_html.to_string @@ Htmx_client.render_article forest home_tree
+          Pure_html.to_string @@ Htmx_client.render_article ~forest home_tree
         in
         let headers = Http.Header.of_list [("Content-Type", "text/html")] in
         Cohttp_eio.Server.respond_string ~headers ~status:`OK ~body:content ()
@@ -194,7 +214,7 @@ let handler :
           begin match None with
           (*  FIXME :*)
           (* | `Vertex_set(vs : Vertex_set.t) -> Htmx_client.render_query_result forest vs *)
-          | Some (`Vertex_set vs) -> Htmx_client.render_query_result forest vs
+          | Some (`Vertex_set vs) -> Htmx_client.render_query_result ~forest vs
           | _ -> None
           end
         | Error (`Msg str) ->
