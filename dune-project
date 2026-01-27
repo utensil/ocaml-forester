@@ -90,8 +90,6 @@
    (>= 0.17.0))
   (logs
    (>= 0.7.0))
-  (bisect_ppx
-   (>= 2.8.3))
   (cohttp-eio
    (>= 6.0.0))
   (routes
