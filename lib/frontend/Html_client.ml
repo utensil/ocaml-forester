@@ -370,26 +370,7 @@ let render_frontmatter ~env (frontmatter : _ T.frontmatter) :
         ];
     ]
 
-let render_page ~forest (tree : _ T.article) : P.node =
-  let reserved = [{prefix = ""; xmlns = "http://www.w3.org/1999/xhtml"}] in
-  let env =
-    {
-      forest;
-      section_depth =  0;
-      scope = tree.frontmatter.uri;
-      loops = Loop_detection.empty;
-      xmlns = Xmlns.init ~reserved;
-    }
-  in
-  let ttl =
-    match tree.frontmatter.title with
-    | None -> H.null []
-    | Some _ ->
-      let title =
-        State.get_expanded_title ?scope:env.scope tree.frontmatter env.forest
-      in
-      H.title [] "%s" @@ Plain_text_client.string_of_content ~forest:env.forest title
-  in
+let page_template ~is_root ~title:ttl c =
   let open H in
   html []
     [
@@ -401,14 +382,14 @@ let render_page ~forest (tree : _ T.article) : P.node =
           link [rel "stylesheet"; href "/style.css"];
           link [rel "stylesheet"; href "/katex.min.css"];
           script [type_ "module"; src "/forester.js"] "";
-          ttl;
+          H.title [] "%s" ttl;
         ];
       body []
         [
           P.std_tag "ninja-keys"
             [placeholder "Start typing a note title or ID"]
             [];
-          (if is_root env.forest.config tree.frontmatter.uri then null []
+          (if is_root then null []
            else
              header
                [class_ "header"]
@@ -421,19 +402,42 @@ let render_page ~forest (tree : _ T.article) : P.node =
                        [a [href "index.html"; title_ "home"] [P.txt "« Home"]];
                    ];
                ]);
-          div
-            [id "grid-wrapper"]
-            [
-              render_article ~env tree;
-              (if should_render_toc article then
-                 nav
-                   [id "toc"]
-                   [
-                     div
-                       [class_ "block"]
-                       [h1 [] [P.txt "Table of Contents"]; render_toc article];
-                   ]
-               else null []);
-            ];
+          div [id "grid-wrapper"] c;
         ];
+    ]
+
+let render_page ~forest (tree : _ T.article) : P.node =
+  let reserved = [{prefix = ""; xmlns = "http://www.w3.org/1999/xhtml"}] in
+  let env =
+    {
+      forest;
+      section_depth = 0;
+      scope = tree.frontmatter.uri;
+      loops = Loop_detection.empty;
+      xmlns = Xmlns.init ~reserved;
+    }
+  in
+  let ttl =
+    match tree.frontmatter.title with
+    | None -> (* FIXME: *) ""
+    | Some _ ->
+      let title =
+        State.get_expanded_title ?scope:env.scope tree.frontmatter env.forest
+      in
+      Plain_text_client.string_of_content ~forest:env.forest title
+  in
+  let open H in
+  let is_root = is_root env.forest.config tree.frontmatter.uri in
+  page_template ~is_root ~title:ttl
+    [
+      render_article ~env tree;
+      (if should_render_toc article then
+         nav
+           [id "toc"]
+           [
+             div
+               [class_ "block"]
+               [h1 [] [P.txt "Table of Contents"]; render_toc article];
+           ]
+       else null []);
     ]
