@@ -42,7 +42,7 @@
         on = opam-nix.lib.${system};
         devPackagesQuery = {
           ocaml-lsp-server = "*";
-            ocamlformat = "*";
+          ocamlformat = "*";
           alcotest = "*";
           odoc = "*";
         };
@@ -108,6 +108,7 @@
             with pkgs;
             devPackages
             ++ [
+              esbuild
               tex
               reuse
               watchexec
