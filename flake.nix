@@ -42,6 +42,7 @@
         on = opam-nix.lib.${system};
         devPackagesQuery = {
           ocaml-lsp-server = "*";
+            ocamlformat = "*";
           alcotest = "*";
           odoc = "*";
         };
