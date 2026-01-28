@@ -88,6 +88,8 @@ let render_date (date : Human_datetime.t) =
 let render_xml_qname qname =
   match qname.prefix with
   | "" -> qname.uname
+  (* The browser does not render elements when they are denoted like <html:p> *)
+  | "html" -> qname.uname
   | _ -> Format.sprintf "%s:%s" qname.prefix qname.uname
 
 let render_xml_attr ~env T.{key; value} =
@@ -147,20 +149,19 @@ and render_content_node ~env (node : 'a T.content_node) : P.node list =
   | Results_of_datalog_query _ -> [] (* TODO: just make a list of links *)
   | Datalog_script _ -> []
 
-and render_link ~env (link : T.content T.link) : P.node list = [
-  P.HTML.a
-    [
-      P.HTML.href "%s" (URI.path_string link.href)
-    ] @@
-    render_content ~env link.content
-]
+and render_link ~env (link : T.content T.link) : P.node list =
+  [
+    P.HTML.a [P.HTML.href "%s" (URI.path_string link.href)]
+    @@ render_content ~env link.content;
+  ]
 
 and render_transclusion ~env (transclusion : T.transclusion) : P.node list =
   match State.get_content_of_transclusion transclusion env.forest with
   | None -> Reporter.fatal (Resource_not_found transclusion.href)
   | Some content -> render_content ~env content
 
-and _render_section_for_atom_client ~env (section : T.content T.section) : P.node list =
+and _render_section_for_atom_client ~env (section : T.content T.section) :
+    P.node list =
   let env =
     {
       env with
@@ -173,8 +174,7 @@ and _render_section_for_atom_client ~env (section : T.content T.section) : P.nod
       [
         begin match section.frontmatter.title with
         | None -> H.null []
-        | Some title ->
-          H.header [] [hx ~env [] @@ render_content ~env title]
+        | Some title -> H.header [] [hx ~env [] @@ render_content ~env title]
         end;
         begin if
           Loop_detection.have_seen_uri_opt section.frontmatter.uri env.loops
@@ -200,8 +200,7 @@ and render_section ~env (section : T.content T.section) : P.node list =
       [
         begin match section.frontmatter.title with
         | None -> P.HTML.null []
-        | Some title ->
-          H.header [] [hx ~env [] @@ render_content ~env title]
+        | Some title -> H.header [] [hx ~env [] @@ render_content ~env title]
         end;
         begin if
           Loop_detection.have_seen_uri_opt section.frontmatter.uri env.loops
@@ -251,13 +250,21 @@ let render_attributions ~env (attributions : T.content T.attribution list) =
       @ List.map render_attribution contributors;
     ]
 
-let render_article ~env (article : T.content T.article) : P.node
-    =
-  (* let@ () = Scope.run ~env:article.frontmatter.uri in *)
+let render_article ~env (article : T.content T.article) : P.node =
+  let should_render_backmatter _ = true in
   H.article []
     [
       H.section []
-(render_content ~env:{env with loops = Loop_detection.add_seen_uri_opt article.frontmatter.uri env.loops} article.mainmatter);
+        (render_content
+           ~env:
+             {
+               env with
+               loops =
+                 Loop_detection.add_seen_uri_opt article.frontmatter.uri
+                   env.loops;
+             }
+           article.mainmatter);
+      (if should_render_backmatter article then H.footer [] [] else H.null []);
     ]
 
 let render_toc _article = H.ul [] []
@@ -294,11 +301,9 @@ let render_position ~env frontmatter =
 let render_institution ~env frontmatter =
   default_meta_item ~env frontmatter "institution"
 
-let render_venue ~env frontmatter =
-  default_meta_item ~env frontmatter "venue"
+let render_venue ~env frontmatter = default_meta_item ~env frontmatter "venue"
 
-let render_source ~env frontmatter =
-  default_meta_item ~env frontmatter "source"
+let render_source ~env frontmatter = default_meta_item ~env frontmatter "source"
 
 let render_doi ~env frontmatter =
   optional (get_meta frontmatter "doi") (fun c ->
@@ -324,7 +329,7 @@ let render_orcid ~env frontmatter =
 
 let render_external ~env frontmatter =
   optional (get_meta frontmatter "external") (fun c ->
-    let link = Plain_text_client.string_of_content ~forest:env.forest c in
+      let link = Plain_text_client.string_of_content ~forest:env.forest c in
       H.li
         [H.class_ "meta-item"]
         [
@@ -347,8 +352,7 @@ let render_video ~env frontmatter =
         [H.class_ "meta-item"]
         [H.a [H.class_ "link external"; H.href "%s" link] [P.txt "Video"]])
 
-let render_frontmatter ~env (frontmatter : _ T.frontmatter) :
-    P.node =
+let render_frontmatter ~env (frontmatter : _ T.frontmatter) : P.node =
   H.header []
     [
       H.h1 [] [H.span [H.class_ "taxon"] []];

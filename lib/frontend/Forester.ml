@@ -98,20 +98,6 @@ let json_manifest ~dev ~(forest : State.t) : string =
   |> (fun t -> `List t)
   |> Yojson.Safe.to_string
 
-let html_redirect uri_string =
-  Pure_html.to_xml
-  @@
-  let open Pure_html in
-  let open HTML in
-  html []
-    [
-      head []
-        [
-          meta [http_equiv `refresh; content "0;url=%s" uri_string];
-          meta [charset "utf-8"];
-        ];
-    ]
-
 let outputs_for_article ~(forest : State.t) (article : _ T.article) =
   match article.frontmatter.uri with
   | None -> []
@@ -132,8 +118,7 @@ let outputs_for_article ~(forest : State.t) (article : _ T.article) =
         article
     in
     let html_content =
-      html_redirect @@ String.concat "/"
-      @@ ("" :: Legacy_xml_client.local_path_components forest.config xml_route)
+      Pure_html.to_string @@ Html_client.render_page ~forest article
     in
     let debug_route = URI.with_path_components (URI.append_path_component (URI.path_components uri) "index.tree") uri in
     let debug_content = Format.asprintf "%a" Types.(pp_article pp_content) article in
@@ -207,9 +192,11 @@ let render_forest ~dev ~(forest : State.t) : unit =
         forest.config.url
     in
     let home_content =
-      html_redirect @@ "/"
-      ^ URI.relative_path_string ~base:bare_host_uri
-          (Config.home_uri forest.config)
+      Pure_html.to_string
+      @@
+      match State.get_article bare_host_uri forest with
+      | None -> Html_client.page_template ~is_root:false ~title:"" []
+      | Some article -> Html_client.render_page ~forest article
     in
     List.cons [(home_route, home_content)]
     @@
