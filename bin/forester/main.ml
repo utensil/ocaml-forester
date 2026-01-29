@@ -42,10 +42,16 @@ let build ~env _ config_filename dev no_theme =
   let forest = Driver.batch_run ~env ~dev ~config in
   forest.diagnostics
   |> URI.Tbl.iter (fun _ d -> List.iter Reporter.Tty.display d);
-  begin if not no_theme then
+  if not no_theme then begin
+    Logs.warn (fun m ->
+        m
+          "You are using a development build of forester. Ignoring local theme \
+           and using canonical theme instead.");
     let@ () = Reporter.trace "when copying theme directory" in
+    let theme_dir = List.hd Theme_site.Sites.theme ^ "/theme" in
+    Format.printf "%s@." theme_dir;
     Forester.copy_contents_of_dir ~env ~forest
-    @@ Eio_util.path_of_dir ~env "theme"
+    @@ Eio_util.path_of_dir ~env theme_dir
   end;
   Forester.render_forest ~dev ~forest;
   Logs.app (fun m -> m "Success!")
