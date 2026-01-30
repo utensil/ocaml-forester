@@ -14,3 +14,11 @@ let nub xs =
       loop acc xs
   in
   loop Bwd.Emp xs
+
+let rec prepend_to_all sep = function
+  | [] -> []
+  | x :: xs -> sep :: x :: prepend_to_all sep xs
+
+let intersperse sep = function
+  | [] -> []
+  | x :: xs -> x :: prepend_to_all sep xs
