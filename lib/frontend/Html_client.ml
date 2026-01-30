@@ -152,14 +152,15 @@ and render_content_node ~env (node : 'a T.content_node) : P.node list =
   | Datalog_script _ -> []
 
 and render_link ~env (link : T.content T.link) : P.node list =
-  (* TODO: Distinguish local links *)
+  let is_local = URI.host link.href = URI.host env.forest.config.url in
+  let href =
+    if is_local then H.href "%sindex.html" (URI.path_string link.href)
+    else H.href "%s" (Format.asprintf "%a" URI.pp link.href)
+  in
   [
     H.span
-      [H.class_ "link local"]
-      [
-        H.a [H.href "%s" (URI.path_string link.href)]
-        @@ render_content ~env link.content;
-      ];
+      [(if is_local then H.class_ "link local" else H.class_ "link external")]
+      [H.a [href] @@ render_content ~env link.content];
   ]
 
 and render_transclusion ~env (transclusion : T.transclusion) : P.node list =
@@ -335,9 +336,7 @@ let render_bibtex ~env frontmatter =
 let render_tree_taxon_with_number ~env:_ _article = H.null []
 
 let render_title ~env (article : T.(content article)) =
-  match article.frontmatter.title with
-  | None -> H.null []
-  | Some c -> H.null (render_content ~env c)
+  render_content ~env (State.get_expanded_title article.frontmatter env.forest)
 
 let render_display_uri ~env (article : T.(content article)) =
   match article.frontmatter.uri with
@@ -366,7 +365,7 @@ let render_frontmatter ~env (article : _ T.article) : P.node =
       H.h1 []
         [
           H.span [H.class_ "taxon"] [render_tree_taxon_with_number ~env article];
-          render_title ~env article;
+          H.null @@ render_title ~env article;
           render_display_uri ~env article;
           render_source_path article;
         ];
