@@ -26,11 +26,18 @@ type env = {
 }
 
 let hx ~env attrs children =
-  P.std_tag (Format.sprintf "h%i" @@ min 6 env.section_depth) attrs children
+  P.std_tag
+    (Format.sprintf "h%i" @@ max 1 @@ min 6 env.section_depth)
+    attrs children
 
 let optional opt kont = match opt with None -> H.null [] | Some v -> kont v
 
 let is_set_to test bopt = match bopt with None -> false | Some b -> b = test
+
+let get_meta (frontmatter : T.content T.frontmatter) meta =
+  List.find_map
+    (fun (m, v) -> if m = meta then Some v else None)
+    frontmatter.metas
 
 (* test if the Home navbar be rendered*)
 let is_root config uri =
@@ -160,7 +167,8 @@ and render_content_node ~env (node : 'a T.content_node) : P.node list =
     end
   | KaTeX (_, content) -> [P.HTML.code [] @@ render_content ~env content]
   | Artefact artefact -> render_content ~env @@ artefact.content
-  | Section section -> render_section ~env section
+  | Section section ->
+    render_section ~env:{env with section_depth = env.section_depth + 1} section
   | Transclude transclusion -> render_transclusion ~env transclusion
   | Link link -> render_link ~env link
   | Results_of_datalog_query _ -> [] (* TODO: just make a list of links *)
@@ -217,38 +225,7 @@ and _render_section_for_atom_client ~env (section : T.content T.section) :
       ];
   ]
 
-and render_section ~env (section : T.content T.section) : P.node list =
-  [
-    H.section
-      [
-        (if is_set_to false section.flags.metadata_shown then
-           H.class_ "block hide-metadata"
-         else H.class_ "block");
-      ]
-      [
-        begin match section.frontmatter.title with
-        | None -> P.HTML.null []
-        | Some title -> H.header [] [hx ~env [] @@ render_content ~env title]
-        end;
-        begin if
-          Loop_detection.have_seen_uri_opt section.frontmatter.uri env.loops
-        then P.txt "Transclusion loop detected, rendering stopped."
-        else
-          H.null
-          @@ render_content
-               ~env:
-                 {
-                   env with
-                   loops =
-                     Loop_detection.add_seen_uri_opt section.frontmatter.uri
-                       env.loops;
-                 }
-               section.mainmatter
-        end;
-      ];
-  ]
-
-let render_attributions ~env (attributions : T.content T.attribution list) =
+and render_attributions ~env (attributions : T.content T.attribution list) =
   let render_attribution attribution =
     match attribution with
     | T.{vertex; _} -> (
@@ -278,16 +255,11 @@ let render_attributions ~env (attributions : T.content T.attribution list) =
       @ List.map render_attribution contributors;
     ]
 
-let get_meta (frontmatter : T.content T.frontmatter) meta =
-  List.find_map
-    (fun (m, v) -> if m = meta then Some v else None)
-    frontmatter.metas
-
-let default_meta_item ~env frontmatter meta =
+and default_meta_item ~env frontmatter meta =
   optional (get_meta frontmatter meta) (fun content ->
       H.li [H.class_ "meta-item"] (render_content ~env content))
 
-let render_attribution_vertex ~env vtx =
+and render_attribution_vertex ~env vtx =
   match vtx with
   | T.Content_vertex content -> H.null (render_content ~env content)
   | T.Uri_vertex href ->
@@ -297,7 +269,7 @@ let render_attribution_vertex ~env vtx =
     in
     H.null @@ render_link ~env T.{href; content}
 
-let render_authors ~env (frontmatter : T.(content frontmatter)) =
+and render_authors ~env (frontmatter : T.(content frontmatter)) =
   let authors, contributors =
     List.partition_map (function T.{role; vertex} ->
         (match role with Author -> Left vertex | Contributor -> Right vertex))
@@ -321,17 +293,17 @@ let render_authors ~env (frontmatter : T.(content frontmatter)) =
     [H.class_ "meta-item"]
     [H.address [H.class_ "author"] (authors @ contributors)]
 
-let render_position ~env frontmatter =
+and render_position ~env frontmatter =
   default_meta_item ~env frontmatter "position"
 
-let render_institution ~env frontmatter =
+and render_institution ~env frontmatter =
   default_meta_item ~env frontmatter "institution"
 
-let render_venue ~env frontmatter = default_meta_item ~env frontmatter "venue"
+and render_venue ~env frontmatter = default_meta_item ~env frontmatter "venue"
 
-let render_source ~env frontmatter = default_meta_item ~env frontmatter "source"
+and render_source ~env frontmatter = default_meta_item ~env frontmatter "source"
 
-let render_doi ~env frontmatter =
+and render_doi ~env frontmatter =
   optional (get_meta frontmatter "doi") (fun c ->
       let doi = Plain_text_client.string_of_content ~forest:env.forest c in
       H.li
@@ -342,7 +314,7 @@ let render_doi ~env frontmatter =
             (render_content ~env c);
         ])
 
-let render_orcid ~env frontmatter =
+and render_orcid ~env frontmatter =
   optional (get_meta frontmatter "orcid") (fun c ->
       let orcid = Plain_text_client.string_of_content ~forest:env.forest c in
       H.li
@@ -353,7 +325,7 @@ let render_orcid ~env frontmatter =
             (render_content ~env c);
         ])
 
-let render_external ~env frontmatter =
+and render_external ~env frontmatter =
   optional (get_meta frontmatter "external") (fun c ->
       let link = Plain_text_client.string_of_content ~forest:env.forest c in
       H.li
@@ -364,82 +336,116 @@ let render_external ~env frontmatter =
             (render_content ~env c);
         ])
 
-let render_slides ~env frontmatter =
+and render_slides ~env frontmatter =
   optional (get_meta frontmatter "slides") (fun c ->
       let link = Plain_text_client.string_of_content ~forest:env.forest c in
       H.li
         [H.class_ "meta-item"]
         [H.a [H.class_ "link external"; H.href "%s" link] [P.txt "Slides"]])
 
-let render_video ~env frontmatter =
+and render_video ~env frontmatter =
   optional (get_meta frontmatter "video") (fun c ->
       let link = Plain_text_client.string_of_content ~forest:env.forest c in
       H.li
         [H.class_ "meta-item"]
         [H.a [H.class_ "link external"; H.href "%s" link] [P.txt "Video"]])
 
-let render_bibtex ~env frontmatter =
+and render_bibtex ~env frontmatter =
   optional (get_meta frontmatter "bibtex") (fun c ->
       H.pre [] (render_content ~env c))
 
-let render_tree_taxon_with_number ~env:_ _article = H.null []
+and render_tree_taxon_with_number ~env:_ _article = H.null []
 
-let render_title ~env (article : T.(content article)) =
-  render_content ~env (State.get_expanded_title article.frontmatter env.forest)
+and render_title ~env (frontmatter : T.(content frontmatter)) =
+  render_content ~env (State.get_expanded_title frontmatter env.forest)
 
-let render_display_uri ~env (article : T.(content article)) =
-  match article.frontmatter.uri with
+and render_display_uri ~env (frontmatter : T.(content frontmatter)) =
+  match frontmatter.uri with
   | None -> H.null []
   | Some uri ->
-    let uri_str = Format.asprintf "%a" URI.pp uri in
+    (* let uri_str = Format.asprintf "%a" URI.pp uri in *)
     H.a
-      [H.class_ "slug"; H.href "%s" uri_str]
+      [H.class_ "slug"; H.href "%s" (route ~env uri)]
       [
         P.txt "[";
         P.txt "%s" @@ URI.display_path_string ~base:env.forest.config.url uri;
         P.txt "]";
       ]
 
-let render_source_path (article : T.(content article)) =
+and render_source_path (frontmatter : T.(content frontmatter)) =
   (* TODO: Check dev mode *)
-  match article.frontmatter.source_path with
+  match frontmatter.source_path with
   | None -> H.null []
   | Some source_path ->
     H.a
       [H.class_ "edit-button"; H.href "vscode://file%s" source_path]
       [P.txt "[edit]"]
 
-let render_frontmatter ~env (article : _ T.article) : P.node =
+and render_frontmatter ~env (frontmatter : _ T.frontmatter) : P.node =
   H.header []
     [
-      H.h1 []
+      hx ~env []
         [
-          H.span [H.class_ "taxon"] [render_tree_taxon_with_number ~env article];
-          H.null @@ render_title ~env article;
+          H.span
+            [H.class_ "taxon"]
+            [render_tree_taxon_with_number ~env frontmatter];
+          H.null @@ render_title ~env frontmatter;
           P.txt " ";
-          render_display_uri ~env article;
+          render_display_uri ~env frontmatter;
           P.txt " ";
-          render_source_path article;
+          render_source_path frontmatter;
         ];
       H.div
         [H.class_ "metadata"]
         [
           H.ul []
             [
-              H.null @@ render_dates ~env article.frontmatter.dates;
-              render_authors ~env article.frontmatter;
-              render_position ~env article.frontmatter;
-              render_institution ~env article.frontmatter;
-              render_venue ~env article.frontmatter;
-              render_source ~env article.frontmatter;
-              render_doi ~env article.frontmatter;
-              render_orcid ~env article.frontmatter;
-              render_external ~env article.frontmatter;
-              render_slides ~env article.frontmatter;
-              render_video ~env article.frontmatter;
+              H.null @@ render_dates ~env frontmatter.dates;
+              render_authors ~env frontmatter;
+              render_position ~env frontmatter;
+              render_institution ~env frontmatter;
+              render_venue ~env frontmatter;
+              render_source ~env frontmatter;
+              render_doi ~env frontmatter;
+              render_orcid ~env frontmatter;
+              render_external ~env frontmatter;
+              render_slides ~env frontmatter;
+              render_video ~env frontmatter;
             ];
         ];
     ]
+
+and render_section ~env ({flags; mainmatter; frontmatter} : T.content T.section)
+    : P.node list =
+  let T.{metadata_shown; header_shown; expanded; _} = flags in
+  let open_ = if not @@ is_set_to false expanded then H.open_ else H.null_ in
+  [
+    H.section
+      [
+        (if is_set_to false metadata_shown then H.class_ "block hide-metadata"
+         else H.class_ "block");
+      ]
+      [
+        begin if Loop_detection.have_seen_uri_opt frontmatter.uri env.loops then
+          P.txt "Transclusion loop detected, rendering stopped."
+        else
+          let new_env =
+            {
+              env with
+              loops = Loop_detection.add_seen_uri_opt frontmatter.uri env.loops;
+            }
+          in
+          if not @@ is_set_to false header_shown then
+            H.details [open_]
+              [
+                H.summary [] [render_frontmatter ~env frontmatter];
+                H.null @@ render_content ~env:new_env mainmatter;
+                render_bibtex ~env frontmatter;
+              ]
+          else H.null @@ render_content ~env:new_env mainmatter
+        end;
+      ];
+  ]
 
 let render_article ~env (article : T.content T.article) : P.node =
   let should_render_backmatter _ = true in
@@ -449,7 +455,7 @@ let render_article ~env (article : T.content T.article) : P.node =
         [H.class_ "block"]
         [
           H.details [H.open_]
-            (H.summary [] [render_frontmatter ~env article]
+            (H.summary [] [render_frontmatter ~env article.frontmatter]
              :: render_content
                   ~env:
                     {
