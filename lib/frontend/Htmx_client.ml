@@ -121,10 +121,9 @@ let default_toc_config ?(suffix = "") ?(taxon = "") ?(number = "")
     implicitly_unnumbered = false;
   }
 
-let rec render_article ~(forest : State.t) (article : T.content T.article) : node
-    =
+let rec render_article ~(forest : State.t) (article : T.content T.article) :
+    node =
   (* FIXME: What should reserved be here? *)
-
   let reserved = [{prefix = ""; xmlns = "http://www.w3.org/1999/xhtml"}] in
   let env : Html_client.env =
     {
@@ -192,8 +191,7 @@ and render_backmatter ~env backmatter =
   let attrs = Format.asprintf "%s backmatter-section" node.@["class"] in
   node +@ class_ "%s" attrs
 
-and render_frontmatter ~env
-    (frontmatter : T.content T.frontmatter) : node =
+and render_frontmatter ~env (frontmatter : T.content T.frontmatter) : node =
   let taxon =
     Option.value ~default:[]
     @@
@@ -281,7 +279,7 @@ and render_frontmatter ~env
         [class_ "metadata"]
         [
           ul []
-          @@ List.map render_date frontmatter.dates
+          @@ List.map (render_date ~env) frontmatter.dates
           @ [
               render_attributions ~env frontmatter.attributions;
               position;
@@ -315,12 +313,10 @@ and render_transclusion transclusion =
         [txt "transclusion: %s" (Format.asprintf "%a" URI.pp href)];
     ]
 
-and render_content ~env (Content content : T.content) : node list
-    =
+and render_content ~env (Content content : T.content) : node list =
   List.concat_map (render_content_node ~env) content
 
-and render_content_node ~env (node : 'a T.content_node) :
-    node list =
+and render_content_node ~env (node : 'a T.content_node) : node list =
   match node with
   | Text str -> [txt "%s" str]
   | CDATA str -> [txt ~raw:true "<![CDATA[%s]]>" str]
@@ -438,7 +434,7 @@ and _tree_taxon_with_number (_tree : T.content T.section) cfg =
   (*TODO: Implement.*)
   contextual_number _tree cfg
 
-and _render_toc_item ~(env: Html_client.env) (item : T.content T.section) =
+and _render_toc_item ~(env : Html_client.env) (item : T.content T.section) =
   let to_str =
     Plain_text_client.string_of_content ~forest:env.forest
       ~router:(Legacy_xml_client.route env.forest)
@@ -502,10 +498,12 @@ let render_query_result ~forest (vs : Vertex_set.t) =
   let env : Html_client.env =
     {
       forest;
-      section_depth =  0;
+      section_depth = 0;
       scope = None;
       loops = Loop_detection.empty;
-      xmlns = Xmlns.init ~reserved: [{prefix = ""; xmlns = "http://www.w3.org/1999/xhtml"}];
+      xmlns =
+        Xmlns.init
+          ~reserved:[{prefix = ""; xmlns = "http://www.w3.org/1999/xhtml"}];
     }
   in
   let make_section =

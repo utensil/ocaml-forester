@@ -40,14 +40,26 @@ let is_root config uri =
 
 let should_render_toc _article = false
 
-let route uri = URI.to_string uri
+let route ~env uri =
+  let is_local = URI.host uri = URI.host env.forest.config.url in
+  if is_local then Format.asprintf "%sindex.html" (URI.path_string uri)
+  else Format.asprintf "%a" URI.pp uri
 
 let _get_expanded_title ~env frontmatter forest =
   State.get_expanded_title ?scope:env.scope
     ~flags:T.{empty_when_untitled = true}
     frontmatter forest
 
-let render_date (date : Human_datetime.t) =
+let render_date ~env (date : Human_datetime.t) =
+  let href_attr =
+    let str =
+      Format.asprintf "%a" Human_datetime.pp (Human_datetime.drop_time date)
+    in
+    let uri = URI_scheme.named_uri ~base:env.forest.config.url str in
+    match State.get_article uri env.forest with
+    | None -> None
+    | Some _ -> Some (H.href "%s" @@ route ~env uri)
+  in
   let year = P.txt "%i" (Human_datetime.year date) in
   let month =
     match Human_datetime.month date with
@@ -73,19 +85,22 @@ let render_date (date : Human_datetime.t) =
     | None -> H.null []
     | Some i -> P.txt "%i" i
   in
+  let content =
+    [
+      Option.value ~default:(H.null []) month;
+      (if Option.is_some month then P.txt " " else H.null []);
+      day;
+      (if Option.is_some month then P.txt ", " else H.null []);
+      year;
+    ]
+  in
   H.li
     [H.class_ "meta-item"]
-    [
-      H.a
-        [H.class_ "link local"]
-        [
-          Option.value ~default:(H.null []) month;
-          (if Option.is_some month then P.txt " " else H.null []);
-          day;
-          (if Option.is_some month then P.txt ", " else H.null []);
-          year;
-        ];
-    ]
+    (match href_attr with
+    | None -> content
+    | Some href -> [H.a [H.class_ "link local"; href] content])
+
+let render_dates ~env = List.map (render_date ~env)
 
 let render_xml_qname qname =
   match qname.prefix with
@@ -131,7 +146,7 @@ and render_content_node ~env (node : 'a T.content_node) : P.node list =
         @ List.map (render_xml_attr ~env) elt.attrs)
         content;
     ]
-  | Route_of_uri uri -> [P.txt "%s" (route uri)]
+  | Route_of_uri uri -> [P.txt "%s" (route ~env uri)]
   | Contextual_number uri ->
     let custom_number =
       let@ resource = Option.bind @@ env.forest.@{uri} in
@@ -352,6 +367,7 @@ let render_display_uri ~env (article : T.(content article)) =
       ]
 
 let render_source_path (article : T.(content article)) =
+  (* TODO: Check dev mode *)
   match article.frontmatter.source_path with
   | None -> H.null []
   | Some source_path ->
@@ -374,6 +390,7 @@ let render_frontmatter ~env (article : _ T.article) : P.node =
         [
           H.ul []
             [
+              H.null @@ render_dates ~env article.frontmatter.dates;
               render_position ~env article.frontmatter;
               render_institution ~env article.frontmatter;
               render_venue ~env article.frontmatter;
