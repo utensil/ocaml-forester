@@ -287,6 +287,40 @@ let default_meta_item ~env frontmatter meta =
   optional (get_meta frontmatter meta) (fun content ->
       H.li [H.class_ "meta-item"] (render_content ~env content))
 
+let render_attribution_vertex ~env vtx =
+  match vtx with
+  | T.Content_vertex content -> H.null (render_content ~env content)
+  | T.Uri_vertex href ->
+    let content =
+      T.Content
+        [T.Transclude {href; target = Title {empty_when_untitled = false}}]
+    in
+    H.null @@ render_link ~env T.{href; content}
+
+let render_authors ~env (frontmatter : T.(content frontmatter)) =
+  let authors, contributors =
+    List.partition_map (function T.{role; vertex} ->
+        (match role with Author -> Left vertex | Contributor -> Right vertex))
+    @@ Forest_util.collect_attributions env.forest frontmatter.uri
+         frontmatter.attributions
+  in
+  let authors =
+    List_util.intersperse (P.txt ", ")
+    @@ List.map (fun author -> render_attribution_vertex ~env author) authors
+  in
+  let contributors =
+    if List.length contributors >= 1 then
+      P.txt ", with contributions from "
+      :: (List_util.intersperse (P.txt ", ")
+         @@ List.map
+              (fun contributor -> render_attribution_vertex ~env contributor)
+              contributors)
+    else []
+  in
+  H.li
+    [H.class_ "meta-item"]
+    [H.address [H.class_ "author"] (authors @ contributors)]
+
 let render_position ~env frontmatter =
   default_meta_item ~env frontmatter "position"
 
@@ -382,7 +416,9 @@ let render_frontmatter ~env (article : _ T.article) : P.node =
         [
           H.span [H.class_ "taxon"] [render_tree_taxon_with_number ~env article];
           H.null @@ render_title ~env article;
+          P.txt " ";
           render_display_uri ~env article;
+          P.txt " ";
           render_source_path article;
         ];
       H.div
@@ -391,6 +427,7 @@ let render_frontmatter ~env (article : _ T.article) : P.node =
           H.ul []
             [
               H.null @@ render_dates ~env article.frontmatter.dates;
+              render_authors ~env article.frontmatter;
               render_position ~env article.frontmatter;
               render_institution ~env article.frontmatter;
               render_venue ~env article.frontmatter;
