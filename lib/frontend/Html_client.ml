@@ -30,6 +30,8 @@ let hx ~env attrs children =
 
 let optional opt kont = match opt with None -> H.null [] | Some v -> kont v
 
+let is_set_to test bopt = match bopt with None -> false | Some b -> b = test
+
 (* test if the Home navbar be rendered*)
 let is_root config uri =
   match uri with
@@ -150,9 +152,14 @@ and render_content_node ~env (node : 'a T.content_node) : P.node list =
   | Datalog_script _ -> []
 
 and render_link ~env (link : T.content T.link) : P.node list =
+  (* TODO: Distinguish local links *)
   [
-    P.HTML.a [P.HTML.href "%s" (URI.path_string link.href)]
-    @@ render_content ~env link.content;
+    H.span
+      [H.class_ "link local"]
+      [
+        H.a [H.href "%s" (URI.path_string link.href)]
+        @@ render_content ~env link.content;
+      ];
   ]
 
 and render_transclusion ~env (transclusion : T.transclusion) : P.node list =
@@ -196,7 +203,12 @@ and _render_section_for_atom_client ~env (section : T.content T.section) :
 
 and render_section ~env (section : T.content T.section) : P.node list =
   [
-    H.section []
+    H.section
+      [
+        (if is_set_to false section.flags.metadata_shown then
+           H.class_ "block hide-metadata"
+         else H.class_ "block");
+      ]
       [
         begin match section.frontmatter.title with
         | None -> P.HTML.null []
@@ -249,42 +261,6 @@ let render_attributions ~env (attributions : T.content T.attribution list) =
       end
       @ List.map render_attribution contributors;
     ]
-
-let render_article ~env (article : T.content T.article) : P.node =
-  let should_render_backmatter _ = true in
-  H.article []
-    [
-      H.section []
-        (render_content
-           ~env:
-             {
-               env with
-               loops =
-                 Loop_detection.add_seen_uri_opt article.frontmatter.uri
-                   env.loops;
-             }
-           article.mainmatter);
-      (if should_render_backmatter article then H.footer [] [] else H.null []);
-    ]
-
-let render_toc _article = H.ul [] []
-
-(* Just used by the atom client *)
-let render_article_as_div ?(heading_level = 0) ~(forest : State.t)
-    (article : T.content T.article) : P.node =
-  let reserved = [{prefix = ""; xmlns = "http://www.w3.org/1999/xhtml"}] in
-  let env =
-    {
-      forest;
-      section_depth = heading_level;
-      scope = article.frontmatter.uri;
-      loops = Loop_detection.empty;
-      xmlns = Xmlns.init ~reserved;
-    }
-  in
-  H.div
-    (List.map render_xmlns_prefix reserved)
-    [H.null @@ render_content ~env article.mainmatter]
 
 let get_meta (frontmatter : T.content T.frontmatter) meta =
   List.find_map
@@ -352,27 +328,107 @@ let render_video ~env frontmatter =
         [H.class_ "meta-item"]
         [H.a [H.class_ "link external"; H.href "%s" link] [P.txt "Video"]])
 
-let render_frontmatter ~env (frontmatter : _ T.frontmatter) : P.node =
+let render_bibtex ~env frontmatter =
+  optional (get_meta frontmatter "bibtex") (fun c ->
+      H.pre [] (render_content ~env c))
+
+let render_tree_taxon_with_number ~env:_ _article = H.null []
+
+let render_title ~env (article : T.(content article)) =
+  match article.frontmatter.title with
+  | None -> H.null []
+  | Some c -> H.null (render_content ~env c)
+
+let render_display_uri ~env (article : T.(content article)) =
+  match article.frontmatter.uri with
+  | None -> H.null []
+  | Some uri ->
+    let uri_str = Format.asprintf "%a" URI.pp uri in
+    H.a
+      [H.class_ "slug"; H.href "%s" uri_str]
+      [
+        P.txt "[";
+        P.txt "%s" @@ URI.display_path_string ~base:env.forest.config.url uri;
+        P.txt "]";
+      ]
+
+let render_source_path (article : T.(content article)) =
+  match article.frontmatter.source_path with
+  | None -> H.null []
+  | Some source_path ->
+    H.a
+      [H.class_ "edit-button"; H.href "vscode://file%s" source_path]
+      [P.txt "[edit]"]
+
+let render_frontmatter ~env (article : _ T.article) : P.node =
   H.header []
     [
-      H.h1 [] [H.span [H.class_ "taxon"] []];
+      H.h1 []
+        [
+          H.span [H.class_ "taxon"] [render_tree_taxon_with_number ~env article];
+          render_title ~env article;
+          render_display_uri ~env article;
+          render_source_path article;
+        ];
       H.div
         [H.class_ "metadata"]
         [
           H.ul []
             [
-              render_position ~env frontmatter;
-              render_institution ~env frontmatter;
-              render_venue ~env frontmatter;
-              render_source ~env frontmatter;
-              render_doi ~env frontmatter;
-              render_orcid ~env frontmatter;
-              render_external ~env frontmatter;
-              render_slides ~env frontmatter;
-              render_video ~env frontmatter;
+              render_position ~env article.frontmatter;
+              render_institution ~env article.frontmatter;
+              render_venue ~env article.frontmatter;
+              render_source ~env article.frontmatter;
+              render_doi ~env article.frontmatter;
+              render_orcid ~env article.frontmatter;
+              render_external ~env article.frontmatter;
+              render_slides ~env article.frontmatter;
+              render_video ~env article.frontmatter;
             ];
         ];
     ]
+
+let render_article ~env (article : T.content T.article) : P.node =
+  let should_render_backmatter _ = true in
+  H.article []
+    [
+      H.section
+        [H.class_ "block"]
+        [
+          H.details [H.open_]
+            (H.summary [] [render_frontmatter ~env article]
+             :: render_content
+                  ~env:
+                    {
+                      env with
+                      loops =
+                        Loop_detection.add_seen_uri_opt article.frontmatter.uri
+                          env.loops;
+                    }
+                  article.mainmatter
+            @ [render_bibtex ~env article.frontmatter]);
+        ];
+      (if should_render_backmatter article then H.footer [] [] else H.null []);
+    ]
+
+let render_toc _article = H.ul [] []
+
+(* Just used by the atom client *)
+let render_article_as_div ?(heading_level = 0) ~(forest : State.t)
+    (article : T.content T.article) : P.node =
+  let reserved = [{prefix = ""; xmlns = "http://www.w3.org/1999/xhtml"}] in
+  let env =
+    {
+      forest;
+      section_depth = heading_level;
+      scope = article.frontmatter.uri;
+      loops = Loop_detection.empty;
+      xmlns = Xmlns.init ~reserved;
+    }
+  in
+  H.div
+    (List.map render_xmlns_prefix reserved)
+    [H.null @@ render_content ~env article.mainmatter]
 
 let page_template ~is_root ~title:ttl c =
   let open H in
