@@ -118,15 +118,17 @@ let handler :
             Cohttp_eio.Server.respond_string ~status:`Not_found ~body:"" ()
           | Some content ->
             (* TODO: Remove any sort of HTML generation from the handler. *)
-  let env : Html_client.env =
-    {
-      forest;
-      section_depth =  0;
-      scope = Some href;
-      loops = Loop_detection.empty;
-      xmlns = Xmlns.init ~reserved: [{prefix = ""; xmlns = "http://www.w3.org/1999/xhtml"}];
-    }
-  in
+            let env : Html_client.env =
+              {
+                forest;
+                scope = Some href;
+                loops = Loop_detection.empty;
+                xmlns =
+                  Xmlns.init
+                    ~reserved:
+                      [{prefix = ""; xmlns = "http://www.w3.org/1999/xhtml"}];
+              }
+            in
             let response =
               Pure_html.(
                 to_string
@@ -172,16 +174,17 @@ let handler :
           | Some _ -> assert false
         in
         let response =
-
-  let env : Html_client.env =
-    {
-      forest;
-      section_depth =  0;
+          let env : Html_client.env =
+            {
+              forest;
               scope = None;
-      loops = Loop_detection.empty;
-      xmlns = Xmlns.init ~reserved: [{prefix = ""; xmlns = "http://www.w3.org/1999/xhtml"}];
-    }
-  in
+              loops = Loop_detection.empty;
+              xmlns =
+                Xmlns.init
+                  ~reserved:
+                    [{prefix = ""; xmlns = "http://www.w3.org/1999/xhtml"}];
+            }
+          in
           Search_menu.results ~env (List.map snd search_results)
         in
         Cohttp_eio.Server.respond_string ~status:`OK ~body:response ()

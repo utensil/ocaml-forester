@@ -20,15 +20,9 @@ end
 type env = {
   forest: State.t;
   scope: URI.t option;
-  section_depth: int;
   loops: Loop_detection.t;
   xmlns: Xmlns.t;
 }
-
-let hx ~env attrs children =
-  P.std_tag
-    (Format.sprintf "h%i" @@ max 1 @@ min 6 env.section_depth)
-    attrs children
 
 let optional opt kont = match opt with None -> H.null [] | Some v -> kont v
 
@@ -140,7 +134,9 @@ and render_content_node ~env (node : 'a T.content_node) : P.node list =
   let config = env.forest.config in
   match node with
   | Text str -> [P.txt "%s" str]
-  | CDATA str -> [P.txt ~raw:true "<![CDATA[%s]]>" str]
+  | CDATA str ->
+    (* TODO: Properly handle this. Not printing CDATA because this only works for XML content type*)
+    [P.txt ~raw:true "%s" str]
   | Uri uri -> [P.txt "%s" (URI.to_string uri)]
   | Xml_elt elt ->
     let name = render_xml_qname elt.name in
@@ -167,8 +163,7 @@ and render_content_node ~env (node : 'a T.content_node) : P.node list =
     end
   | KaTeX (_, content) -> [P.HTML.code [] @@ render_content ~env content]
   | Artefact artefact -> render_content ~env @@ artefact.content
-  | Section section ->
-    render_section ~env:{env with section_depth = env.section_depth + 1} section
+  | Section section -> render_section ~env section
   | Transclude transclusion -> render_transclusion ~env transclusion
   | Link link -> render_link ~env link
   | Results_of_datalog_query _ -> [] (* TODO: just make a list of links *)
@@ -193,19 +188,13 @@ and render_transclusion ~env (transclusion : T.transclusion) : P.node list =
 
 and _render_section_for_atom_client ~env (section : T.content T.section) :
     P.node list =
-  let env =
-    {
-      env with
-      section_depth = env.section_depth + 1;
-      scope = section.frontmatter.uri;
-    }
-  in
+  let env = {env with scope = section.frontmatter.uri} in
   [
     H.section []
       [
         begin match section.frontmatter.title with
         | None -> H.null []
-        | Some title -> H.header [] [hx ~env [] @@ render_content ~env title]
+        | Some title -> H.header [] [H.h1 [] @@ render_content ~env title]
         end;
         begin if
           Loop_detection.have_seen_uri_opt section.frontmatter.uri env.loops
@@ -357,7 +346,8 @@ and render_bibtex ~env frontmatter =
 and render_tree_taxon_with_number ~env:_ _article = H.null []
 
 and render_title ~env (frontmatter : T.(content frontmatter)) =
-  render_content ~env (State.get_expanded_title frontmatter env.forest)
+  render_content ~env
+    (State.get_expanded_title ?scope:env.scope frontmatter env.forest)
 
 and render_display_uri ~env (frontmatter : T.(content frontmatter)) =
   match frontmatter.uri with
@@ -384,7 +374,7 @@ and render_source_path (frontmatter : T.(content frontmatter)) =
 and render_frontmatter ~env (frontmatter : _ T.frontmatter) : P.node =
   H.header []
     [
-      hx ~env []
+      H.h1 []
         [
           H.span
             [H.class_ "taxon"]
@@ -428,21 +418,22 @@ and render_section ~env ({flags; mainmatter; frontmatter} : T.content T.section)
       [
         begin if Loop_detection.have_seen_uri_opt frontmatter.uri env.loops then
           P.txt "Transclusion loop detected, rendering stopped."
-        else
-          let new_env =
-            {
-              env with
-              loops = Loop_detection.add_seen_uri_opt frontmatter.uri env.loops;
-            }
-          in
-          if not @@ is_set_to false header_shown then
-            H.details [open_]
-              [
-                H.summary [] [render_frontmatter ~env frontmatter];
-                H.null @@ render_content ~env:new_env mainmatter;
-                render_bibtex ~env frontmatter;
-              ]
-          else H.null @@ render_content ~env:new_env mainmatter
+        else if not @@ is_set_to false header_shown then
+          H.details [open_]
+            [
+              H.summary [] [render_frontmatter ~env frontmatter];
+              (let env =
+                 {
+                   env with
+                   loops =
+                     Loop_detection.add_seen_uri_opt frontmatter.uri env.loops;
+                   scope = frontmatter.uri;
+                 }
+               in
+               H.null @@ render_content ~env mainmatter);
+              render_bibtex ~env frontmatter;
+            ]
+        else H.null @@ render_content ~env mainmatter
         end;
       ];
   ]
@@ -473,13 +464,12 @@ let render_article ~env (article : T.content T.article) : P.node =
 let render_toc _article = H.ul [] []
 
 (* Just used by the atom client *)
-let render_article_as_div ?(heading_level = 0) ~(forest : State.t)
-    (article : T.content T.article) : P.node =
+let render_article_as_div ~(forest : State.t) (article : T.content T.article) :
+    P.node =
   let reserved = [{prefix = ""; xmlns = "http://www.w3.org/1999/xhtml"}] in
   let env =
     {
       forest;
-      section_depth = heading_level;
       scope = article.frontmatter.uri;
       loops = Loop_detection.empty;
       xmlns = Xmlns.init ~reserved;
@@ -530,7 +520,6 @@ let render_page ~forest (tree : _ T.article) : P.node =
   let env =
     {
       forest;
-      section_depth = 0;
       scope = tree.frontmatter.uri;
       loops = Loop_detection.empty;
       xmlns = Xmlns.init ~reserved;

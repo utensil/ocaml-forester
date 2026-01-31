@@ -128,7 +128,6 @@ let rec render_article ~(forest : State.t) (article : T.content T.article) :
   let env : Html_client.env =
     {
       forest;
-      section_depth = 0;
       scope = article.frontmatter.uri;
       loops = Loop_detection.empty;
       xmlns = Xmlns.init ~reserved;
@@ -498,7 +497,6 @@ let render_query_result ~forest (vs : Vertex_set.t) =
   let env : Html_client.env =
     {
       forest;
-      section_depth = 0;
       scope = None;
       loops = Loop_detection.empty;
       xmlns =

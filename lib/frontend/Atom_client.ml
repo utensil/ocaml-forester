@@ -142,7 +142,7 @@ let render_entry ~(forest : State.t) ?(scope : URI.t option)
       end;
       A.content
         [A.type_ "xhtml"]
-        [Html_client.render_article_as_div ~heading_level:1 ~forest article];
+        [Html_client.render_article_as_div ~forest article];
     ]
 
 let render_feed (forest : State.t) ~(source_uri : URI.t) ~(feed_uri : URI.t) :
