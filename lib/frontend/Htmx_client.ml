@@ -332,7 +332,7 @@ and render_content_node ~env (node : 'a T.content_node) : node list =
     ]
   | Transclude transclusion -> render_transclusion transclusion
   | Contextual_number addr -> begin
-    match (State.get_article addr) env.forest with
+    match State.get_article ~forest:env.forest addr with
     | Some a ->
       [contextual_number (T.article_to_section a) (default_toc_config ())]
     | None -> []
@@ -374,7 +374,7 @@ and render_content_node ~env (node : 'a T.content_node) : node list =
 (* TODO: links need to be flattened in order to produce valid HTML. *)
 and render_link ~env (link : T.content T.link) : node list =
   let attrs =
-    match State.get_article link.href env.forest with
+    match State.get_article ~forest:env.forest link.href with
     | None ->
       (* TODO: rendering of hrefs is suboptimal... *)
       [href "%s" (Format.asprintf "%a" URI.pp link.href)]
@@ -518,7 +518,7 @@ let render_query_result ~forest (vs : Vertex_set.t) =
   let nodes =
     vs |> Vertex_set.to_seq
     |> Seq.filter_map Vertex.uri_of_vertex
-    |> Seq.filter_map (State.get_article @~ forest)
+    |> Seq.filter_map (State.get_article ~forest)
     |> List.of_seq
     |> List.sort C.compare_article
     |> List.map (Fun.compose (render_section ~env) make_section)

@@ -57,7 +57,7 @@ let render_date ~env (date : Human_datetime.t) =
       Format.asprintf "%a" Human_datetime.pp (Human_datetime.drop_time date)
     in
     let uri = URI_scheme.named_uri ~base:env.forest.config.url str in
-    match State.get_article uri env.forest with
+    match State.get_article ~forest:env.forest uri with
     | None -> None
     | Some _ -> Some (H.href "%s" @@ route ~env uri)
   in
@@ -182,7 +182,7 @@ and render_link ~env (link : T.content T.link) : P.node list =
   ]
 
 and render_transclusion ~env (transclusion : T.transclusion) : P.node list =
-  match State.get_content_of_transclusion transclusion env.forest with
+  match State.get_content_of_transclusion ~forest:env.forest transclusion with
   | None -> Reporter.fatal (Resource_not_found transclusion.href)
   | Some content -> render_content ~env content
 

@@ -57,16 +57,15 @@ let v =
   in
   Pure_html.to_string markup
 
-let results ~( env: Html_client.env) (links : URI.t list) =
+let results ~(env : Html_client.env) (links : URI.t list) =
   Pure_html.to_string
   @@ ul
        [id "search-results"]
        (List.filter_map
           (fun uri ->
             let title =
-              State.get_content_of_transclusion
+              State.get_content_of_transclusion ~forest:env.forest
                 {href = uri; target = Title {empty_when_untitled = false}}
-                env.forest
             in
             Option.map
               (fun t ->

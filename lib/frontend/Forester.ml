@@ -204,7 +204,7 @@ let render_forest ~dev ~(forest : State.t) : unit =
     let home_content =
       Pure_html.to_string
       @@
-      match State.get_article bare_host_uri forest with
+      match State.get_article ~forest bare_host_uri with
       | None -> Html_client.page_template ~is_root:false ~title:"" []
       | Some article -> Html_client.render_page ~forest article
     in

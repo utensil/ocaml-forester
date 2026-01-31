@@ -41,7 +41,7 @@ let compute ({position; textDocument; _} : L.HoverParams.t) =
         let uri_under_cursor =
           URI_scheme.named_uri ~base:forest.config.url addr
         in
-        State.get_article uri_under_cursor forest
+        State.get_article ~forest uri_under_cursor
       in
       match tree_under_cursor with
       | Some article -> Some (render article.mainmatter)

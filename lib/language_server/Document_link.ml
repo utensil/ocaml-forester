@@ -43,7 +43,7 @@ let compute (params : L.DocumentLinkParams.t) =
         let* target =
           Option.map Lsp.Uri.of_path @@ URI.Tbl.find_opt forest.resolver uri
         in
-        let* {frontmatter; _} = State.get_article uri forest in
+        let* {frontmatter; _} = State.get_article ~forest uri in
         let* tooltip = Option.map (fun c -> render c) frontmatter.title in
         let link = L.DocumentLink.create ~range ~target ~tooltip () in
         Some link

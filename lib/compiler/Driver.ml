@@ -14,7 +14,7 @@ end
 
 let update (action : Action.t) (forest : State.t) =
   let open Action in
-  let forest = State.update_history forest action in
+  let forest = State.update_history ~forest action in
   match action with
   | Quit e -> begin match e with Fail -> exit 1 | Finished -> exit 0 end
   | Query q ->

@@ -119,7 +119,7 @@ let get_embedded_articles (forest : State.t) (article : _ T.article) =
     List.fold_left (Fun.flip visit_node) Vertex_set.empty
     @@ T.extract_content article.mainmatter
   in
-  Forest_util.get_sorted_articles forest vertices
+  Forest_util.get_sorted_articles ~forest vertices
 
 let render_entry ~(forest : State.t) ?(scope : URI.t option)
     (article : T.content T.article) : P.node =
@@ -147,7 +147,7 @@ let render_entry ~(forest : State.t) ?(scope : URI.t option)
 
 let render_feed (forest : State.t) ~(source_uri : URI.t) ~(feed_uri : URI.t) :
     P.node =
-  match State.get_article source_uri forest with
+  match State.get_article ~forest source_uri with
   | None -> Reporter.fatal @@ Resource_not_found source_uri
   | Some blog ->
     let articles = get_embedded_articles forest blog in

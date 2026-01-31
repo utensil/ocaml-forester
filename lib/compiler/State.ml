@@ -110,7 +110,7 @@ end
 
 open Syntax
 
-let update_history forest action =
+let update_history ~forest action =
   {forest with history = action :: forest.history}
 
 let find_opt state uri = URI.Tbl.find_opt state.index uri
@@ -147,8 +147,8 @@ let get_resource state uri =
 let get_code state uri =
   match state.={uri} with None -> None | Some tree -> to_code tree
 
-let get_article : URI.t -> t -> T.content T.article option =
- fun uri forest ->
+let get_article : forest:t -> URI.t -> T.content T.article option =
+ fun ~forest uri ->
   match URI.Tbl.find_opt forest.index uri with
   | None | Some (Document _) | Some (Parsed _) | Some (Expanded _) -> None
   | Some (Resource {resource; _}) -> (
@@ -173,29 +173,29 @@ let rec get_expanded_title ?scope ?(flags = T.{empty_when_untitled = false})
   match frontmatter.designated_parent with
   | Some parent_uri
     when not (Option.equal URI.equal scope frontmatter.designated_parent) ->
-    let@ parent = Option.map @~ get_article parent_uri forest in
+    let@ parent = Option.map @~ get_article ~forest parent_uri in
     let parent_title = get_expanded_title parent.frontmatter forest in
     let parent_link = T.Link {href = parent_uri; content = parent_title} in
     let chevron = T.Text " › " in
     T.map_content (fun xs -> parent_link :: chevron :: xs) short_title
   | _ -> None
 
-let get_content_of_transclusion (transclusion : T.transclusion) forest =
+let get_content_of_transclusion ~forest (transclusion : T.transclusion) =
   match transclusion.target with
   | Full flags ->
-    let@ article = Option.map @~ get_article transclusion.href forest in
+    let@ article = Option.map @~ get_article ~forest transclusion.href in
     T.Content [T.Section (T.article_to_section article ~flags)]
   | Mainmatter ->
-    let@ article = Option.map @~ get_article transclusion.href forest in
+    let@ article = Option.map @~ get_article ~forest transclusion.href in
     article.mainmatter
   | Title flags ->
     Option.some
-    @@ begin match get_article transclusion.href forest with
+    @@ begin match get_article ~forest transclusion.href with
     | None -> T.Content [T.Uri transclusion.href]
     | Some article -> get_expanded_title ~flags article.frontmatter forest
     end
   | Taxon ->
-    let@ article = Option.map @~ get_article transclusion.href forest in
+    let@ article = Option.map @~ get_article ~forest transclusion.href in
     let default = T.Content [T.Text section_symbol] in
     Option.value ~default article.frontmatter.taxon
 
@@ -203,7 +203,7 @@ let get_title_or_content_of_vertex ?(not_found = fun _ -> None) vertex forest =
   match vertex with
   | T.Content_vertex content -> Some content
   | T.Uri_vertex uri -> begin
-    match get_article uri forest with
+    match get_article ~forest uri with
     | Some article -> article.frontmatter.title
     | None -> not_found uri
   end

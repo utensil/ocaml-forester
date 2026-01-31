@@ -102,7 +102,7 @@ let handler :
         match Headers.parse_content_target request_headers with
         (* If we fail to parse a target, just render the article.*)
         | None -> begin
-          match State.get_article href forest with
+          match State.get_article ~forest href with
           | None ->
             (* TODO: Some sort of 404 template *)
             Cohttp_eio.Server.respond_string ~status:`Not_found ~body:"" ()
@@ -113,7 +113,7 @@ let handler :
             Cohttp_eio.Server.respond_string ~status:`OK ~body:response ()
         end
         | Some target -> (
-          match State.get_content_of_transclusion {target; href} forest with
+          match State.get_content_of_transclusion ~forest {target; href} with
           | None ->
             Cohttp_eio.Server.respond_string ~status:`Not_found ~body:"" ()
           | Some content ->
@@ -137,7 +137,7 @@ let handler :
             Cohttp_eio.Server.respond_string ~status:`OK ~body:response ())
       end
       else
-        match State.get_article href forest with
+        match State.get_article ~forest href with
         | Some article ->
           let content =
             Pure_html.to_string
@@ -195,7 +195,7 @@ let handler :
     | Nil -> Cohttp_eio.Server.respond_string ~status:`OK ~body:"" ()
     | Home -> begin
       let home = URI_scheme.named_uri ~base:forest.config.url "index" in
-      match State.get_article home forest with
+      match State.get_article ~forest home with
       | None -> Cohttp_eio.Server.respond_string ~status:`OK ~body:"" ()
       | Some home_tree ->
         let content =

@@ -29,7 +29,7 @@ and pp_content_node ~forest ~(router : URI.t -> URI.t) fmt :
 
 and pp_transclusion ~forest ~(router : URI.t -> URI.t) fmt
     (transclusion : T.transclusion) =
-  match State.get_content_of_transclusion transclusion forest with
+  match State.get_content_of_transclusion ~forest transclusion with
   | None ->
     Format.fprintf fmt "<could not resolve transclusion of %a>" URI.pp
       transclusion.href

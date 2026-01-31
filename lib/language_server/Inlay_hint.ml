@@ -27,7 +27,7 @@ let consume_addr_for_inlay ~(config : Config.t) ~(forest : State.t)
 let inlay_hint_for_addr ~(config : Config.t) ~(forest : State.t)
     ~(pos : Range.position) (addr : string) : L.InlayHint.t option =
   let uri = URI_scheme.named_uri ~base:config.url addr in
-  let@ {frontmatter; _} = Option.bind @@ State.get_article uri forest in
+  let@ {frontmatter; _} = Option.bind @@ State.get_article ~forest uri in
   let@ title = Option.bind frontmatter.title in
   let content = " " ^ Plain_text_client.string_of_content ~forest title in
   Option.some

@@ -18,10 +18,10 @@ let compare_article ~forest =
   end) in
   C.compare_article
 
-let get_sorted_articles (forest : State.t) addrs =
+let get_sorted_articles ~(forest : State.t) addrs =
   addrs |> Vertex_set.to_seq
   |> Seq.filter_map Vertex.uri_of_vertex
-  |> Seq.filter_map (fun uri -> State.get_article uri forest)
+  |> Seq.filter_map (fun uri -> State.get_article ~forest uri)
   |> List.of_seq
   |> List.sort (compare_article ~forest)
 
@@ -43,7 +43,7 @@ let collect_attributions (forest : State.t) (uri_opt : URI.t option)
         let negatives = [] in
         Datalog_expr.{var = x; positives; negatives}
         |> Forest.run_datalog_query forest.graphs
-        |> get_sorted_articles forest
+        |> get_sorted_articles ~forest
       in
       let@ biotree : _ T.article = List.filter_map @~ articles in
       let@ uri = Option.map @~ biotree.frontmatter.uri in

@@ -53,7 +53,7 @@ let () =
   let forest = {(State.make ~env ~config ~dev:false ()) with index} in
   let print_transclusion : T.transclusion -> unit =
    fun t ->
-    let content = Option.get @@ State.get_content_of_transclusion t forest in
+    let content = Option.get @@ State.get_content_of_transclusion ~forest t in
     Format.printf "%a"
       (Legacy_xml_client.pp_xml ~forest ?stylesheet:None)
       T.

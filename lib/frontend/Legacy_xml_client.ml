@@ -227,7 +227,7 @@ and render_content_node ~env (node : 'a T.content_node) : P.node list =
     in
     let results = Forest.run_datalog_query env.forest.graphs q in
     let@ article =
-      List.map @~ Forest_util.get_sorted_articles env.forest results
+      List.map @~ Forest_util.get_sorted_articles ~forest:env.forest results
     in
     render_section ~env @@ article_to_section article
   | Section section -> [render_section ~env section]
@@ -255,13 +255,13 @@ and render_resource_source source =
     "<![CDATA[%s]]>" source.source
 
 and render_transclusion ~env (transclusion : T.transclusion) : P.node list =
-  match State.get_content_of_transclusion transclusion env.forest with
+  match State.get_content_of_transclusion ~forest:env.forest transclusion with
   | None ->
     Reporter.fatal ?loc:(range ~env) (Resource_not_found transclusion.href)
   | Some content -> render_content ~env content
 
 and render_link ~env (link : T.content T.link) : P.node list =
-  let article_opt = State.get_article link.href env.forest in
+  let article_opt = State.get_article ~forest:env.forest link.href in
   let attrs =
     match article_opt with
     | None ->
@@ -326,7 +326,7 @@ and render_date ~env (date : Human_datetime.t) =
       Format.asprintf "%a" Human_datetime.pp (Human_datetime.drop_time date)
     in
     let uri = URI_scheme.named_uri ~base:config.url str in
-    match State.get_article uri env.forest with
+    match State.get_article ~forest:env.forest uri with
     | None -> X.null_
     | Some _ -> X.href "%s" @@ URI.to_string @@ route env.forest uri
   in
