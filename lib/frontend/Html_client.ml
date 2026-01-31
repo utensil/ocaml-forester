@@ -165,21 +165,19 @@ and render_content_node ~env (node : 'a T.content_node) : P.node list =
   | Artefact artefact -> render_content ~env @@ artefact.content
   | Section section -> render_section ~env section
   | Transclude transclusion -> render_transclusion ~env transclusion
-  | Link link -> render_link ~env link
+  | Link link -> [render_link ~env link]
   | Results_of_datalog_query _ -> [] (* TODO: just make a list of links *)
   | Datalog_script _ -> []
 
-and render_link ~env (link : T.content T.link) : P.node list =
+and render_link ~env (link : T.content T.link) : P.node =
   let is_local = URI.host link.href = URI.host env.forest.config.url in
   let href =
     if is_local then H.href "%sindex.html" (URI.path_string link.href)
     else H.href "%s" (Format.asprintf "%a" URI.pp link.href)
   in
-  [
-    H.span
-      [(if is_local then H.class_ "link local" else H.class_ "link external")]
-      [H.a [href] @@ render_content ~env link.content];
-  ]
+  H.span
+    [(if is_local then H.class_ "link local" else H.class_ "link external")]
+    [H.a [href] @@ render_content ~env link.content]
 
 and render_transclusion ~env (transclusion : T.transclusion) : P.node list =
   match State.get_content_of_transclusion ~forest:env.forest transclusion with
@@ -224,7 +222,7 @@ and render_attributions ~env (attributions : T.content T.attribution list) =
           T.Content
             [T.Transclude {href; target = Title {empty_when_untitled = false}}]
         in
-        H.null @@ render_link ~env T.{href; content}
+        render_link ~env T.{href; content}
       | T.Content_vertex content -> H.null @@ render_content ~env content)
   in
   let authors, contributors =
@@ -256,7 +254,7 @@ and render_attribution_vertex ~env vtx =
       T.Content
         [T.Transclude {href; target = Title {empty_when_untitled = false}}]
     in
-    H.null @@ render_link ~env T.{href; content}
+    render_link ~env T.{href; content}
 
 and render_authors ~env (frontmatter : T.(content frontmatter)) =
   let authors, contributors =
