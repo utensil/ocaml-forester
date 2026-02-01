@@ -162,10 +162,26 @@ and render_content_node ~env (node : _ T.content_node) : P.node list =
     end
   | KaTeX (_, content) -> [P.HTML.code [] @@ render_content ~env content]
   | Artefact artefact -> render_content ~env @@ artefact.content
-  | Section section -> render_section ~env section
+  | Section section -> [render_section ~env section]
   | Transclude transclusion -> render_transclusion ~env transclusion
   | Link link -> [render_link ~env link]
-  | Results_of_datalog_query _ -> [] (* TODO: just make a list of links *)
+  | Results_of_datalog_query q ->
+    let article_to_section =
+      T.article_to_section
+        ~flags:
+          {
+            T.default_section_flags with
+            expanded = Some false;
+            numbered = Some false;
+            included_in_toc = Some false;
+            metadata_shown = Some true;
+          }
+    in
+    let results = Forest.run_datalog_query env.forest.graphs q in
+    let@ article =
+      List.map @~ Forest_util.get_sorted_articles ~forest:env.forest results
+    in
+    render_section ~env @@ article_to_section article
   | Datalog_script _ -> []
 
 and render_link ~env (link : T.content T.link) : P.node =
@@ -405,37 +421,95 @@ and render_frontmatter ~env (frontmatter : _ T.frontmatter) : P.node =
     ]
 
 and render_section ~env ({flags; mainmatter; frontmatter} : T.content T.section)
-    : P.node list =
-  let T.{metadata_shown; header_shown; expanded; _} = flags in
+    : P.node =
+  let T.{metadata_shown; header_shown; expanded; hidden_when_empty; _} =
+    flags
+  in
   let open_ = if not @@ is_set_to false expanded then H.open_ else H.null_ in
-  [
+  if hidden_when_empty = Some true && mainmatter = T.Content [] then H.null []
+  else
     H.section
       [
         (if is_set_to false metadata_shown then H.class_ "block hide-metadata"
          else H.class_ "block");
       ]
       [
-        begin if Loop_detection.have_seen_uri_opt frontmatter.uri env.loops then
-          P.txt "Transclusion loop detected, rendering stopped."
-        else if not @@ is_set_to false header_shown then
-          H.details [open_]
-            [
-              H.summary [] [render_frontmatter ~env frontmatter];
-              (let env =
+        (if Loop_detection.have_seen_uri_opt frontmatter.uri env.loops then
+           P.txt "Transclusion loop detected, rendering stopped."
+         else if not @@ is_set_to false header_shown then
+           H.details [open_]
+             [
+               H.summary [] [render_frontmatter ~env frontmatter];
+               (let env =
+                  {
+                    env with
+                    loops =
+                      Loop_detection.add_seen_uri_opt frontmatter.uri env.loops;
+                    scope = frontmatter.uri;
+                  }
+                in
+                H.null @@ render_content ~env mainmatter);
+               render_bibtex ~env frontmatter;
+             ]
+         else H.null @@ render_content ~env mainmatter);
+      ]
+
+(* NOTE: There is a little problem when rendering the backmatter. We want
+         to hide empty backmatter sections. In the old XML + XSLT workflow,
+         this was achieved by evaluating the backmatter query and rendering the
+         XML. The XSLT template could then hide the entire section if it was
+         empty. At first glance it does not seem possible to do this in one
+         pass and simultaneously reusing the content renderer for the
+         backmatter. For now we solve this by making some assumptions about the
+         shape of the backmatter. I am fine with asserting here because failure
+         means something is catastrophically wrong with my understanding of the
+         code. By necessity there is some code duplication between render_backmatter and render_section.*)
+
+let render_backmatter ~env (T.Content backmatter : T.content) : P.node =
+  H.null
+  @@ List.map
+       (function
+         | T.(
+             Section
+               {
+                 mainmatter = Content [Results_of_datalog_query q];
+                 frontmatter;
+                 _;
+               }) -> begin
+           let article_to_section =
+             T.article_to_section
+               ~flags:
                  {
-                   env with
-                   loops =
-                     Loop_detection.add_seen_uri_opt frontmatter.uri env.loops;
-                   scope = frontmatter.uri;
+                   T.default_section_flags with
+                   expanded = Some false;
+                   numbered = Some false;
+                   included_in_toc = Some false;
+                   metadata_shown = Some true;
                  }
-               in
-               H.null @@ render_content ~env mainmatter);
-              render_bibtex ~env frontmatter;
-            ]
-        else H.null @@ render_content ~env mainmatter
-        end;
-      ];
-  ]
+           in
+           let results =
+             Forest.run_datalog_query env.forest.graphs q
+             |> Forest_util.get_sorted_articles ~forest:env.forest
+             |> List.map (fun article ->
+                 let section = article_to_section article in
+                 (* TODO: update env *)
+                 render_section ~env section)
+           in
+           match results with
+           | [] -> H.null []
+           | _ ->
+             H.section
+               [H.class_ "block"]
+               [
+                 H.details [H.open_]
+                   [
+                     H.summary []
+                       (render_frontmatter ~env frontmatter :: results);
+                   ];
+               ]
+         end
+         | _ -> assert false)
+       backmatter
 
 let render_article ~env (article : T.content T.article) : P.node =
   let should_render_backmatter _ = true in
@@ -457,7 +531,9 @@ let render_article ~env (article : T.content T.article) : P.node =
                   article.mainmatter
             @ [render_bibtex ~env article.frontmatter]);
         ];
-      (if should_render_backmatter article then H.footer [] [] else H.null []);
+      (if should_render_backmatter article then
+         H.footer [] [render_backmatter ~env article.backmatter]
+       else H.null []);
     ]
 
 let render_toc _article = H.ul [] []
