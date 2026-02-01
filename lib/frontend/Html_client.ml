@@ -130,8 +130,7 @@ let rec render_content ~env (Content content : T.content) : P.node list =
     xs @ ys
   | [] -> []
 
-and render_content_node ~env (node : 'a T.content_node) : P.node list =
-  let config = env.forest.config in
+and render_content_node ~env (node : _ T.content_node) : P.node list =
   match node with
   | Text str -> [P.txt "%s" str]
   | CDATA str ->
@@ -158,7 +157,7 @@ and render_content_node ~env (node : 'a T.content_node) : P.node list =
       | _ -> None
     in
     begin match custom_number with
-    | None -> [P.txt "%s" @@ URI.relative_path_string ~base:config.url uri]
+    | None -> [render_display_uri ~env (Some uri)]
     | Some num -> [P.txt "%s" num]
     end
   | KaTeX (_, content) -> [P.HTML.code [] @@ render_content ~env content]
@@ -347,13 +346,15 @@ and render_title ~env (frontmatter : T.(content frontmatter)) =
   render_content ~env
     (State.get_expanded_title ?scope:env.scope frontmatter env.forest)
 
-and render_display_uri ~env (frontmatter : T.(content frontmatter)) =
-  match frontmatter.uri with
+and render_display_uri ~env ?(slug = false) uri : P.node =
+  match uri with
   | None -> H.null []
   | Some uri ->
     (* let uri_str = Format.asprintf "%a" URI.pp uri in *)
     H.a
-      [H.class_ "slug"; H.href "%s" (route ~env uri)]
+      [
+        (if slug then H.class_ "slug" else H.null_); H.href "%s" (route ~env uri);
+      ]
       [
         P.txt "[";
         P.txt "%s" @@ URI.display_path_string ~base:env.forest.config.url uri;
@@ -379,7 +380,7 @@ and render_frontmatter ~env (frontmatter : _ T.frontmatter) : P.node =
             [render_tree_taxon_with_number ~env frontmatter];
           H.null @@ render_title ~env frontmatter;
           P.txt " ";
-          render_display_uri ~env frontmatter;
+          render_display_uri ~env ~slug:true frontmatter.uri;
           P.txt " ";
           render_source_path frontmatter;
         ];
