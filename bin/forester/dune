@@ -11,6 +11,7 @@
   (site
    (forester theme)))
  (files
+  (min.js as theme/min.js)
   (glob_files_rec theme/*)))
 
 (subdir
@@ -28,6 +29,18 @@
      --bundle
      javascript-source/forester.js
      --outfile=%{target})))))
+
+(executable
+ (name app)
+ (modules app)
+ (modes js)
+ (libraries brr))
+
+(rule
+ (targets min.js)
+ (deps app.bc.js)
+ (action
+  (run cp %{deps} %{targets})))
 
 (executable
  (public_name forester)
