@@ -624,3 +624,13 @@ let render_page ~forest (tree : _ T.article) : P.node =
            ]
        else null []);
     ]
+
+let html_redirect ~path =
+  H.html []
+    [
+      H.head []
+        [
+          H.meta [H.http_equiv `refresh; H.content "0;url=%s" path];
+          H.meta [H.charset "utf-8"];
+        ];
+    ]

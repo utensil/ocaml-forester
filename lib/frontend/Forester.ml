@@ -193,7 +193,6 @@ let render_forest ~dev ~(forest : State.t) : unit =
     EP.save ~create:(`Or_truncate 0o644) json_path json_string
   end;
   let jobs =
-    let bare_host_uri = URI.with_path_components [] forest.config.url in
     let home_route =
       URI.with_path_components
         (URI.append_path_component
@@ -203,10 +202,8 @@ let render_forest ~dev ~(forest : State.t) : unit =
     in
     let home_content =
       Pure_html.to_string
-      @@
-      match State.get_article ~forest bare_host_uri with
-      | None -> Html_client.page_template ~is_root:false ~title:"" []
-      | Some article -> Html_client.render_page ~forest article
+      @@ Html_client.html_redirect
+           ~path:(uri_to_local_path ~forest forest.config.home)
     in
     List.cons [(home_route, home_content)]
     @@
