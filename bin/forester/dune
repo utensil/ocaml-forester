@@ -34,7 +34,7 @@
  (name app)
  (modules app)
  (modes js)
- (libraries brr))
+ (libraries brr jsont jsont.brr))
 
 (rule
  (targets min.js)
