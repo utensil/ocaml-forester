@@ -22,9 +22,15 @@ type env = {
   scope: URI.t option;
   loops: Loop_detection.t;
   xmlns: Xmlns.t;
+  in_backmatter: bool;
 }
 
+let generate_id (frontmatter : T.(content frontmatter)) =
+  let id = Hashtbl.hash frontmatter in
+  Format.asprintf "id%i" id
+
 let optional opt kont = match opt with None -> H.null [] | Some v -> kont v
+let optional_ opt kont = match opt with None -> H.null_ | Some v -> kont v
 
 let is_set_to test bopt = match bopt with None -> false | Some b -> b = test
 
@@ -34,12 +40,19 @@ let get_meta (frontmatter : T.content T.frontmatter) meta =
     frontmatter.metas
 
 (* test if the Home navbar be rendered*)
-let is_root config uri =
+let is_home ~env uri =
   match uri with
   | None -> false
-  | Some uri -> URI.equal (Config.home_uri config) uri
+  | Some uri -> URI.equal (Config.home_uri env.forest.config) uri
 
-let should_render_toc _article = false
+let is_toc_node node =
+  match node with
+  | T.Transclude {target = Full _ | Mainmatter; _} -> true
+  | T.Section _ -> true
+  | _ -> false
+
+let should_render_toc mainmatter =
+  List.length @@ List.filter is_toc_node mainmatter > 0
 
 let route ~env uri =
   let is_local = URI.host uri = URI.host env.forest.config.url in
@@ -425,6 +438,7 @@ and render_section ~env ({flags; mainmatter; frontmatter} : T.content T.section)
   let T.{metadata_shown; header_shown; expanded; hidden_when_empty; _} =
     flags
   in
+  let id = generate_id frontmatter in
   let open_ = if not @@ is_set_to false expanded then H.open_ else H.null_ in
   if hidden_when_empty = Some true && mainmatter = T.Content [] then H.null []
   else
@@ -437,7 +451,8 @@ and render_section ~env ({flags; mainmatter; frontmatter} : T.content T.section)
         (if Loop_detection.have_seen_uri_opt frontmatter.uri env.loops then
            P.txt "Transclusion loop detected, rendering stopped."
          else if not @@ is_set_to false header_shown then
-           H.details [open_]
+           H.details
+             [open_; H.id "%s" id]
              [
                H.summary [] [render_frontmatter ~env frontmatter];
                (let env =
@@ -466,6 +481,7 @@ and render_section ~env ({flags; mainmatter; frontmatter} : T.content T.section)
          code. By necessity there is some code duplication between render_backmatter and render_section.*)
 
 let render_backmatter ~env (T.Content backmatter : T.content) : P.node =
+  let env = {env with in_backmatter = true} in
   H.null
   @@ List.map
        (function
@@ -492,7 +508,6 @@ let render_backmatter ~env (T.Content backmatter : T.content) : P.node =
              |> Forest_util.get_sorted_articles ~forest:env.forest
              |> List.map (fun article ->
                  let section = article_to_section article in
-                 (* TODO: update env *)
                  render_section ~env section)
            in
            match results with
@@ -512,7 +527,7 @@ let render_backmatter ~env (T.Content backmatter : T.content) : P.node =
        backmatter
 
 let render_article ~env (article : T.content T.article) : P.node =
-  let should_render_backmatter _ = true in
+  let should_render_backmatter = not @@ is_home ~env article.frontmatter.uri in
   H.article []
     [
       H.section
@@ -531,12 +546,68 @@ let render_article ~env (article : T.content T.article) : P.node =
                   article.mainmatter
             @ [render_bibtex ~env article.frontmatter]);
         ];
-      (if should_render_backmatter article then
+      (if should_render_backmatter then
          H.footer [] [render_backmatter ~env article.backmatter]
        else H.null []);
     ]
 
-let render_toc _article = H.ul [] []
+let rec render_toc_item ~env node =
+  let@ ({uri; title; _} as frontmatter), T.Content mainmatter =
+    Option.map
+    @~
+    match node with
+    | T.Transclude ({target = Full _ | Mainmatter; _} as transclusion) ->
+      let@ T.{frontmatter; mainmatter; _} =
+        Option.map @~ (State.get_section ~forest:env.forest) transclusion
+      in
+      (frontmatter, mainmatter)
+    | T.Section {frontmatter; mainmatter; _} -> Some (frontmatter, mainmatter)
+    | _ -> None
+  in
+  let id = generate_id frontmatter in
+  H.li []
+    [
+      H.a
+        [
+          H.class_ "bullet";
+          (fun uri ->
+            match uri with
+            | Some uri -> H.href "%s" (route ~env uri)
+            | _ -> H.href "%s" id)
+            uri;
+          optional_ title (fun title ->
+              let title =
+                Plain_text_client.string_of_content ~forest:env.forest title
+              in
+              let display_uri =
+                Option.value ~default:""
+                @@ Option.map
+                     (fun uri ->
+                       Format.sprintf "[%s]"
+                       @@ URI.display_path_string ~base:env.forest.config.url
+                            uri)
+                     uri
+              in
+              H.title_ "%s%s" title display_uri);
+        ]
+        [P.txt "■"];
+      H.span
+        [H.class_ "link local"; P.string_attr "data-target" "#%s" id]
+        [
+          H.span
+            [H.class_ "taxon"]
+            [render_tree_taxon_with_number ~env frontmatter];
+          H.null @@ render_title ~env frontmatter;
+        ];
+      render_toc ~env mainmatter;
+    ]
+
+and render_toc ~env mainmatter =
+  assert (not env.in_backmatter);
+  let items =
+    List.filter_map (fun node -> render_toc_item ~env node) mainmatter
+  in
+  if List.length items > 0 then H.ul [H.class_ "block"] items else H.null []
 
 (* Just used by the atom client *)
 let render_article_as_div ~(forest : State.t) (article : T.content T.article) :
@@ -548,13 +619,14 @@ let render_article_as_div ~(forest : State.t) (article : T.content T.article) :
       scope = article.frontmatter.uri;
       loops = Loop_detection.empty;
       xmlns = Xmlns.init ~reserved;
+      in_backmatter = false;
     }
   in
   H.div
     (List.map render_xmlns_prefix reserved)
     [H.null @@ render_content ~env article.mainmatter]
 
-let page_template ~is_root ~title:ttl c =
+let page_template ~is_home ~title:ttl ?htmx c =
   let open H in
   html []
     [
@@ -565,7 +637,11 @@ let page_template ~is_root ~title:ttl c =
             [name "viewport"; content "width=device-width, initial-scale=1.0"];
           link [rel "stylesheet"; href "/style.css"];
           link [rel "stylesheet"; href "/katex.min.css"];
-          script [type_ "module"; src "/forester.js"] "";
+          (* script [type_ "module"; src "/forester.js"] ""; *)
+          script [type_ "module"; src "/min.js"] "";
+          (match htmx with
+          | None -> H.null []
+          | _ -> script [type_ "module"; src "/htmx.js"] "");
           H.title [] "%s" ttl;
         ];
       body []
@@ -573,7 +649,7 @@ let page_template ~is_root ~title:ttl c =
           P.std_tag "ninja-keys"
             [placeholder "Start typing a note title or ID"]
             [];
-          (if is_root then null []
+          (if is_home then null []
            else
              header
                [class_ "header"]
@@ -583,44 +659,51 @@ let page_template ~is_root ~title:ttl c =
                    [
                      div
                        [class_ "logo"]
-                       [a [href "index.html"; title_ "home"] [P.txt "« Home"]];
+                       [
+                         a
+                           [href "/index/index.html"; title_ "home"]
+                           [P.txt "« Home"];
+                       ];
                    ];
                ]);
           div [id "grid-wrapper"] c;
         ];
     ]
 
-let render_page ~forest (tree : _ T.article) : P.node =
+let render_page ~forest
+    ({frontmatter; mainmatter = T.Content mainmatter; _} as tree : _ T.article)
+    : P.node =
   let reserved = [{prefix = ""; xmlns = "http://www.w3.org/1999/xhtml"}] in
   let env =
     {
       forest;
-      scope = tree.frontmatter.uri;
+      scope = frontmatter.uri;
       loops = Loop_detection.empty;
       xmlns = Xmlns.init ~reserved;
+      in_backmatter = false;
     }
   in
   let ttl =
-    match tree.frontmatter.title with
+    match frontmatter.title with
     | None -> (* FIXME: *) ""
     | Some _ ->
       let title =
-        State.get_expanded_title ?scope:env.scope tree.frontmatter env.forest
+        State.get_expanded_title ?scope:env.scope frontmatter env.forest
       in
       Plain_text_client.string_of_content ~forest:env.forest title
   in
   let open H in
-  let is_root = is_root env.forest.config tree.frontmatter.uri in
-  page_template ~is_root ~title:ttl
+  let is_home = is_home ~env frontmatter.uri in
+  page_template ~is_home ~title:ttl
     [
       render_article ~env tree;
-      (if should_render_toc article then
+      (if should_render_toc mainmatter then
          nav
            [id "toc"]
            [
              div
                [class_ "block"]
-               [h1 [] [P.txt "Table of Contents"]; render_toc article];
+               [h1 [] [P.txt "Table of Contents"]; render_toc ~env mainmatter];
            ]
        else null []);
     ]

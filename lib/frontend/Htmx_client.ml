@@ -131,6 +131,7 @@ let rec render_article ~(forest : State.t) (article : T.content T.article) :
       scope = article.frontmatter.uri;
       loops = Loop_detection.empty;
       xmlns = Xmlns.init ~reserved;
+      in_backmatter = false;
     }
   in
   HTML.article
@@ -502,6 +503,7 @@ let render_query_result ~forest (vs : Vertex_set.t) =
       xmlns =
         Xmlns.init
           ~reserved:[{prefix = ""; xmlns = "http://www.w3.org/1999/xhtml"}];
+      in_backmatter = false;
     }
   in
   let make_section =

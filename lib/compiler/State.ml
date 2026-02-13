@@ -199,6 +199,26 @@ let get_content_of_transclusion ~forest (transclusion : T.transclusion) =
     let default = T.Content [T.Text section_symbol] in
     Option.value ~default article.frontmatter.taxon
 
+let get_section ~forest (transclusion : T.transclusion) :
+    T.(content section) option =
+  match transclusion.target with
+  | Full flags ->
+    let@ article = Option.map @~ get_article ~forest transclusion.href in
+    T.
+      {
+        flags;
+        frontmatter = article.frontmatter;
+        mainmatter = article.mainmatter;
+      }
+  | Mainmatter ->
+    let@ article = Option.map @~ get_article ~forest transclusion.href in
+    T.article_to_section article
+  | _ ->
+    (* NOTE: If you are reading this: Think again about what transclusion
+             you passed to this function. At time of writing, I think this
+             should never happen. *)
+    assert false
+
 let get_title_or_content_of_vertex ?(not_found = fun _ -> None) vertex forest =
   match vertex with
   | T.Content_vertex content -> Some content

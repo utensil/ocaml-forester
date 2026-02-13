@@ -127,6 +127,7 @@ let handler :
                   Xmlns.init
                     ~reserved:
                       [{prefix = ""; xmlns = "http://www.w3.org/1999/xhtml"}];
+                in_backmatter = false;
               }
             in
             let response =
@@ -183,6 +184,7 @@ let handler :
                 Xmlns.init
                   ~reserved:
                     [{prefix = ""; xmlns = "http://www.w3.org/1999/xhtml"}];
+              in_backmatter = false;
             }
           in
           Search_menu.results ~env (List.map snd search_results)
