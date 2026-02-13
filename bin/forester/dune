@@ -34,7 +34,7 @@
  (name app)
  (modules app)
  (modes js)
- (libraries brr jsont jsont.brr))
+ (libraries brr jsont.brr forester.app))
 
 (rule
  (targets min.js)

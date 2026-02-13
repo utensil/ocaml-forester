@@ -1,0 +1,13 @@
+;;; SPDX-FileCopyrightText: 2024 The Forester Project Contributors
+;;;
+;;; SPDX-License-Identifier: GPL-3.0-or-later
+
+(library
+ (name Forester_app)
+ (libraries brr jsont jsont.brr)
+ (public_name forester.app))
+
+(env
+ (dev
+  (flags
+   (:standard -w -66-32-33-27-26-69))))
