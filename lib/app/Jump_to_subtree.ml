@@ -26,12 +26,10 @@ let jump_to_subtree evt =
 let add_listeners () =
   El.fold_find_by_selector
     (fun el () ->
-      let unlisten =
-        Ev.listen Ev.click (fun ev -> jump_to_subtree ev) (El.as_target el)
-      in
-      ())
+      ignore
+      @@ Ev.listen Ev.click (fun ev -> jump_to_subtree ev) (El.as_target el))
     (Jstr.v "[data-target^='#']")
     ()
 
 let init () =
-  Ev.(listen load (fun ev -> add_listeners ()) (Window.as_target G.window))
+  Ev.(listen load (fun _ -> add_listeners ()) (Window.as_target G.window))
