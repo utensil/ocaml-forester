@@ -63,4 +63,5 @@ let () =
   in
   Search_modal.register_hotkeys m;
   modal := Some m;
-  ignore @@ Jump_to_subtree.init ()
+  ignore @@ Jump_to_subtree.init ();
+  ignore @@ Open_in_editor.init ()
