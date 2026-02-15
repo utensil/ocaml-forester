@@ -48,7 +48,7 @@ let build ~env _ config_filename dev no_theme =
           "You are using a development build of forester. Ignoring local theme \
            and using canonical theme instead.");
     let@ () = Reporter.trace "when copying theme directory" in
-    let theme_dir = List.hd Theme_site.Sites.theme ^ "/theme" in
+    let theme_dir = List.hd Theme_site.Sites.themes ^ "/default" in
     Format.printf "%s@." theme_dir;
     Forester.copy_contents_of_dir ~env ~forest
     @@ Eio_util.path_of_dir ~env theme_dir

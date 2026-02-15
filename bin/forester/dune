@@ -9,26 +9,11 @@
 (install
  (section
   (site
-   (forester theme)))
+   (forester themes)))
  (files
-  (min.js as theme/min.js)
-  (glob_files_rec theme/*)))
-
-(subdir
- theme
- (rule
-  (target ./forester.js)
-  (deps
-   javascript-source/forester.js
-   (source_tree node_modules))
-  (action
-   (progn
-    (run
-     esbuild
-     --minify
-     --bundle
-     javascript-source/forester.js
-     --outfile=%{target})))))
+  (min.js as default/min.js)
+  (glob_files_rec
+   (theme/* with_prefix default))))
 
 (executable
  (name app)
