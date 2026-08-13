@@ -25,7 +25,7 @@ type env = {
   in_backmatter: bool;
 }
 
-let generate_id (frontmatter : T.(content frontmatter)) =
+let generate_id (frontmatter : T.content T.frontmatter) =
   let id = Hashtbl.hash frontmatter in
   Format.asprintf "id%i" id
 
@@ -284,7 +284,7 @@ and render_attribution_vertex ~env vtx =
     in
     render_link ~env T.{href; content}
 
-and render_authors ~env (frontmatter : T.(content frontmatter)) =
+and render_authors ~env (frontmatter : T.content T.frontmatter) =
   let authors, contributors =
     List.partition_map (function T.{role; vertex} ->
         (match role with Author -> Left vertex | Contributor -> Right vertex))
@@ -371,7 +371,7 @@ and render_bibtex ~env frontmatter =
 
 and render_tree_taxon_with_number ~env:_ _article = H.null []
 
-and render_title ~env (frontmatter : T.(content frontmatter)) =
+and render_title ~env (frontmatter : T.content T.frontmatter) =
   render_content ~env
     (State.get_expanded_title ?scope:env.scope frontmatter env.forest)
 
@@ -390,7 +390,7 @@ and render_display_uri ~env ?(slug = false) uri : P.node =
         P.txt "]";
       ]
 
-and render_source_path (frontmatter : T.(content frontmatter)) =
+and render_source_path (frontmatter : T.content T.frontmatter) =
   (* TODO: Check dev mode *)
   match frontmatter.source_path with
   | None -> H.null []

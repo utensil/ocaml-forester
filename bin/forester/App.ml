@@ -39,14 +39,15 @@ let () =
 
   let on_search query =
     Brr.Console.log [Jstr.v ("Searching: " ^ query)];
+    let query = Jstr.lowercased (Jstr.v query) in
 
     let results =
       match !forest with
       | Some trees ->
         List.filter
           (fun Tree.{title; _} ->
-            let re = Regexp.create ~flags:(Jstr.v "gi") (Jstr.v query) in
-            Option.is_some @@ Regexp.match' re (Jstr.v title))
+            Option.is_some
+            @@ Jstr.find_sub ~sub:query (Jstr.lowercased (Jstr.v title)))
           trees
       | None -> []
     in

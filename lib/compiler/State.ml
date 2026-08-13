@@ -200,7 +200,7 @@ let get_content_of_transclusion ~forest (transclusion : T.transclusion) =
     Option.value ~default article.frontmatter.taxon
 
 let get_section ~forest (transclusion : T.transclusion) :
-    T.(content section) option =
+    T.content T.section option =
   match transclusion.target with
   | Full flags ->
     let@ article = Option.map @~ get_article ~forest transclusion.href in
